@@ -376,8 +376,17 @@ const StoryEditor = (): JSX.Element => {
   const [worldPanelWidth, setWorldPanelWidth] = useState(300);
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(250);
-  const [panelHeights, setPanelHeights] = useState<Record<string, number>>({});
-  const [resizing, setResizing] = useState<string | null>(null);
+  const [panelHeights, setPanelHeights] = useState<Record<string, number>>(() => {
+    const heights: Record<string, number> = {};
+    storyPanels.forEach(panel => {
+      heights[`${panel.id}-input`] = 200;
+      heights[`${panel.id}-output`] = 200;
+    });
+    return heights;
+  });
+  const [resizingPanel, setResizingPanel] = useState<string | null>(null);
+  const [resizeStartY, setResizeStartY] = useState<number>(0);
+  const [resizeStartHeight, setResizeStartHeight] = useState<number>(0);
 
   const handleAddPanel = (index: number) => {
     const newPanel: StoryPanel = {
@@ -397,6 +406,12 @@ const StoryEditor = (): JSX.Element => {
       newPanels.splice(index + 1, 0, newPanel);
       return newPanels;
     });
+
+    setPanelHeights(prev => ({
+      ...prev,
+      [`${newPanel.id}-input`]: 200,
+      [`${newPanel.id}-output`]: 200
+    }));
   };
 
   const handleDeletePanel = (panelId: string) => {
@@ -784,46 +799,40 @@ const StoryEditor = (): JSX.Element => {
     );
   };
 
-  const handleResizeStop = (event: React.SyntheticEvent, data: ResizeCallbackData) => {
-    setWorldPanelWidth(worldPanelWidth + data.size.width);
-  };
-
-  const handleLeftPanelResizeStop = (event: React.SyntheticEvent, data: ResizeCallbackData) => {
-    setLeftPanelWidth(data.size.width);
-  };
-
-  const handlePanelResizeStart = (panelId: string, e: React.MouseEvent) => {
+  const handleResizeStart = (panelId: string, e: React.MouseEvent) => {
     e.preventDefault();
-    setResizing(panelId);
-    const startY = e.clientY;
-    const startHeight = panelHeights[panelId] || 200;
+    e.stopPropagation();
+    setResizingPanel(panelId);
+    setResizeStartY(e.clientY);
+    setResizeStartHeight(panelHeights[`${panelId}-input`] || 200);
+  };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizing) return;
-      const deltaY = e.clientY - startY;
-      const newHeight = Math.max(100, Math.min(500, startHeight + deltaY));
-      setPanelHeights(prev => ({ ...prev, [panelId]: newHeight }));
-    };
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!resizingPanel) return;
+    const deltaY = e.clientY - resizeStartY;
+    const newHeight = Math.max(100, Math.min(500, resizeStartHeight + deltaY));
+    
+    setPanelHeights(prev => ({
+      ...prev,
+      [`${resizingPanel}-input`]: newHeight,
+      [`${resizingPanel}-output`]: newHeight
+    }));
+  };
 
-    const handleMouseUp = () => {
-      setResizing(null);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+  const handleResizeEnd = () => {
+    setResizingPanel(null);
   };
 
   useEffect(() => {
-    if (resizing) {
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'ns-resize';
-    } else {
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
+    if (resizingPanel) {
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
     }
-  }, [resizing]);
+  }, [resizingPanel, resizeStartY, resizeStartHeight]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1310,17 +1319,20 @@ const StoryEditor = (): JSX.Element => {
                             <Paper
                               ref={provided.innerRef}
                               {...provided.draggableProps}
-                              {...provided.dragHandleProps}
                               sx={{ p: 2, display: 'flex', gap: 2, position: 'relative' }}
                             >
-                              {/* Drag handle */}
-                              <Box sx={{ 
-                                position: 'absolute', 
-                                left: 4, 
-                                top: '50%', 
-                                transform: 'translateY(-50%)',
-                                cursor: 'grab'
-                              }}>
+                              {/* Drag handle - only for reordering */}
+                              <Box 
+                                {...provided.dragHandleProps}
+                                sx={{ 
+                                  position: 'absolute', 
+                                  left: 4, 
+                                  top: '50%', 
+                                  transform: 'translateY(-50%)',
+                                  cursor: 'grab',
+                                  zIndex: 1
+                                }}
+                              >
                                 <DragIndicatorIcon />
                               </Box>
 
@@ -1336,10 +1348,7 @@ const StoryEditor = (): JSX.Element => {
                                     border: '1px solid',
                                     borderColor: 'divider',
                                     borderRadius: 1,
-                                    overflow: 'hidden',
-                                    '&:hover .resize-handle': {
-                                      opacity: 1
-                                    }
+                                    overflow: 'hidden'
                                   }}
                                 >
                                   <TextField
@@ -1362,42 +1371,6 @@ const StoryEditor = (): JSX.Element => {
                                       }
                                     }}
                                   />
-                                  <Box
-                                    className="resize-handle"
-                                    onMouseDown={(e) => handlePanelResizeStart(`${panel.id}-input`, e)}
-                                    sx={{
-                                      position: 'absolute',
-                                      bottom: 0,
-                                      left: 0,
-                                      right: 0,
-                                      height: 8,
-                                      cursor: 'ns-resize',
-                                      opacity: 0,
-                                      transition: 'opacity 0.2s',
-                                      backgroundColor: 'action.hover',
-                                      '&:hover': {
-                                        opacity: 1,
-                                        backgroundColor: 'action.selected'
-                                      }
-                                    }}
-                                  />
-                                  <Box sx={{ 
-                                    position: 'absolute', 
-                                    right: 8, 
-                                    bottom: 8,
-                                    display: 'flex',
-                                    gap: 1
-                                  }}>
-                                    <Tooltip title="Submit">
-                                      <IconButton
-                                        size="small"
-                                        onClick={() => handleSubmit(panel.id)}
-                                        disabled={!panel.userInput}
-                                      >
-                                        <SendIcon />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </Box>
                                 </Box>
                               </Box>
 
@@ -1413,10 +1386,7 @@ const StoryEditor = (): JSX.Element => {
                                     border: '1px solid',
                                     borderColor: panel.isEdited ? 'primary.main' : 'divider',
                                     borderRadius: 1,
-                                    overflow: 'hidden',
-                                    '&:hover .resize-handle': {
-                                      opacity: 1
-                                    }
+                                    overflow: 'hidden'
                                   }}
                                 >
                                   <TextField
@@ -1440,99 +1410,29 @@ const StoryEditor = (): JSX.Element => {
                                       }
                                     }}
                                   />
-                                  <Box
-                                    className="resize-handle"
-                                    onMouseDown={(e) => handlePanelResizeStart(`${panel.id}-output`, e)}
-                                    sx={{
-                                      position: 'absolute',
-                                      bottom: 0,
-                                      left: 0,
-                                      right: 0,
-                                      height: 8,
-                                      cursor: 'ns-resize',
-                                      opacity: 0,
-                                      transition: 'opacity 0.2s',
-                                      backgroundColor: 'action.hover',
-                                      '&:hover': {
-                                        opacity: 1,
-                                        backgroundColor: 'action.selected'
-                                      }
-                                    }}
-                                  />
-                                  <Box sx={{ 
-                                    position: 'absolute', 
-                                    right: 8, 
-                                    bottom: 8,
-                                    display: 'flex',
-                                    gap: 1
-                                  }}>
-                                    {panel.isEditing ? (
-                                      <>
-                                        <Tooltip title="Save">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => {
-                                              const newPanels = [...storyPanels];
-                                              newPanels[index] = { 
-                                                ...panel, 
-                                                isEditing: false,
-                                                isEdited: true,
-                                                lastSavedOutput: panel.aiOutput
-                                              };
-                                              setStoryPanels(newPanels);
-                                            }}
-                                          >
-                                            <SaveIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <Tooltip title="Cancel">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => {
-                                              const newPanels = [...storyPanels];
-                                              newPanels[index] = { 
-                                                ...panel, 
-                                                isEditing: false,
-                                                aiOutput: panel.lastSavedOutput
-                                              };
-                                              setStoryPanels(newPanels);
-                                            }}
-                                          >
-                                            <UndoIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Tooltip title="Edit">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleEditToggle(panel.id)}
-                                          >
-                                            <EditIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <Tooltip title="Regenerate">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleRegenerate(panel.id)}
-                                          >
-                                            <RefreshIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <Tooltip title="Regenerate All Below">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleRegenerateBelow(panel.id)}
-                                          >
-                                            <AutoAwesomeIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                      </>
-                                    )}
-                                  </Box>
                                 </Box>
                               </Box>
+
+                              {/* Resize Handle */}
+                              <Box
+                                onMouseDown={(e) => handleResizeStart(panel.id, e)}
+                                sx={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: 4,
+                                  backgroundColor: 'divider',
+                                  opacity: 0.5,
+                                  transition: 'opacity 0.2s',
+                                  '&:hover': {
+                                    opacity: 1,
+                                    backgroundColor: 'primary.main',
+                                    height: 6,
+                                    cursor: 'ns-resize'
+                                  }
+                                }}
+                              />
 
                               {/* Section Instructions and Delete Buttons */}
                               <Box sx={{ 
