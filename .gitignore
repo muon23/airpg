@@ -51,5 +51,4 @@ var/
 *.swo
 
 # Jupyter Notebooks
-notebooks/
-docs/ 
+notebooks/ 
