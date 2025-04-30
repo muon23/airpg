@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Collection, TypeVar, Sequence
 
-from bots.Bot import Bot
+from llms.Llm import Llm
 from character.Situation import Situation
 
 
@@ -22,7 +22,7 @@ class Scene:
             if s.Character == protagonist:
                 if user_messages:
                     yield user_messages
-                yield Bot.Role.AI, s.to_message()
+                yield Llm.Role.AI, s.to_message()
             else:
                 user_messages += s.to_message(private=False)
         if user_messages:

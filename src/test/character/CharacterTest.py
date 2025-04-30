@@ -1,14 +1,14 @@
 import unittest
 
-from bots.DeepInfraBot import DeepInfraBot
+from llms.DeepInfraLlm import DeepInfraLlm
 from character.Character import Character
 
 
 class CharacterTest(unittest.TestCase):
     def test_basic(self):
-        llama3 = DeepInfraBot("llama-3")
+        llama3 = DeepInfraLlm("llama-3")
         april = Character("April", engine=llama3)
-        april.play()
+        # april.play()
         self.assertEqual(True, False)  # add assertion here
 
 

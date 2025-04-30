@@ -1,15 +1,18 @@
 import logging
 import os
-from typing import Any, Sequence
+from typing import Any, Sequence, List
 
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 
-from bots.Bot import Bot
-from bots.HuggingFaceChatRunnable import HuggingFaceChatRunnable
+from llms.Llm import Llm
+from llms.HuggingFaceChatRunnable import HuggingFaceChatRunnable
+from llms.RunnableToLLMAdapter import RunnableToLLMAdapter
 
 
-class LlamaBot(Bot):
+class LlamaLlm(Llm):
 
     SUPPORTED_MODELS = [
         "meta-llama/Llama-2-7b-chat-hf",
@@ -57,7 +60,7 @@ class LlamaBot(Bot):
         super().__init__(llm=self.llm)
 
     @classmethod
-    def __convert_to_llama_prompt(cls, messages: Sequence[tuple[Bot.Role, str]]) -> str:
+    def __convert_to_llama_prompt(cls, messages: Sequence[tuple[Llm.Role, str]]) -> str:
         prompt = ""
         for role, content in messages:
             if role == "system":
@@ -68,7 +71,7 @@ class LlamaBot(Bot):
                 prompt += f"{content}\n"
         return prompt
 
-    def preprocess_prompt(self, prompt: Sequence[tuple[Bot.Role, str] | str] | str) -> ChatPromptTemplate:
+    def preprocess_prompt(self, prompt: Sequence[tuple[Llm.Role, str] | str] | str) -> ChatPromptTemplate:
         # Reformat the prompt
         if not isinstance(prompt, str):
             prompt = self.__convert_to_llama_prompt(prompt)
@@ -85,7 +88,7 @@ class LlamaBot(Bot):
             metadata = dict()
 
         else:
-            raise TypeError(f"Unsupported return type for HfBot.react() (was {type(response)})")
+            raise TypeError(f"Unsupported return type for LlamaLlm.invoke() (was {type(response)})")
 
         content = content.replace("[/INST]", "")
 
@@ -100,3 +103,13 @@ class LlamaBot(Bot):
 
     def get_default_task(self) -> str:
         return "generation" if self.model_name in self.__CHAT_NOT_SUPPORTED else "chat"
+
+    @classmethod
+    def get_supported_models(cls) -> List[str]:
+        return list(cls.MODEL_ALIASES.keys()) + cls.SUPPORTED_MODELS
+
+    def as_runnable(self) -> Runnable:
+        return self.llm
+
+    def as_language_model(self) -> BaseLanguageModel:
+        return RunnableToLLMAdapter(self.as_runnable())

@@ -1,6 +1,6 @@
 import unittest
 
-from bots.GptBot import GptBot
+from llms.GptLlm import GptLlm
 from character.Character import Character
 from character.Situation import Situation
 
@@ -29,7 +29,7 @@ class SituationTest(unittest.TestCase):
     """
 
     def test_basic(self):
-        gpt = GptBot()
+        gpt = GptLlm()
         april = Character("April", gpt)
         s1 = Situation.from_content(april, self.april_scene)
 

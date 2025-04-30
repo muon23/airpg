@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Sequence, Any
+from typing import Sequence, Any, List
 
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableSequence, Runnable, RunnableConfig
 from transformers import AutoTokenizer
 
 
-class Bot(ABC):
+class Llm(ABC):
     class Role(Enum):
         SYSTEM = 0
         HUMAN = 1
@@ -27,7 +28,7 @@ class Bot(ABC):
         # For counting tokens
         self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-    def react(self, prompt: Sequence[tuple[Role | str, str] | str] | str, **kwargs) -> dict:
+    def invoke(self, prompt: Sequence[tuple[Role | str, str] | str] | str, **kwargs) -> dict:
         # Format the prompt
         prompt = self.preprocess_prompt(prompt)
 
@@ -68,4 +69,21 @@ class Bot(ABC):
 
     def get_default_task(self) -> str:
         return "chat"
+
+    @classmethod
+    @abstractmethod
+    def get_supported_models(cls) -> List[str]:
+        pass
+
+    #
+    # LangChain adapters
+    #
+    @abstractmethod
+    def as_runnable(self) -> Runnable:
+        pass
+
+    @abstractmethod
+    def as_language_model(self) -> BaseLanguageModel:
+        pass
+
 

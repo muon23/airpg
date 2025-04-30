@@ -1,14 +1,16 @@
 import logging
 import os
-from typing import Any
+from typing import Any, List
 
-from langchain_core.messages import AIMessage
+from langchain_core.language_models import BaseLanguageModel
+from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessage
 
-from bots.Bot import Bot
+from llms.Llm import Llm
 
 
-class GptBot(Bot):
+class GptLlm(Llm):
     SUPPORTED_MODELS = [
         "gpt-3.5-turbo",
         "gpt-4",
@@ -20,6 +22,7 @@ class GptBot(Bot):
     ]
 
     MODEL_ALIASES = {
+        "gpt-4.5": "gpt-4.5-preview",
         "gpt-4o+": "gpt-4o-2024-08-06",
         "gpt-o1": "o1",
         "gpt-o3": "o3-mini",
@@ -43,7 +46,7 @@ class GptBot(Bot):
 
         if self.model_name in ["o1", "o1-preview", "o3-mini"]:
             kwargs["temperature"] = 1
-            role_names = {Bot.Role.SYSTEM: "user"}
+            role_names = {Llm.Role.SYSTEM: "user"}
         else:
             role_names = {}
 
@@ -53,9 +56,9 @@ class GptBot(Bot):
         if not self.model_key:
             raise RuntimeError(f"OpenAI API key not provided")
 
-        llm = ChatOpenAI(model_name=self.model_name, openai_api_key=self.model_key, **kwargs)
+        self.llm = ChatOpenAI(model_name=self.model_name, openai_api_key=self.model_key, **kwargs)
 
-        super().__init__(llm=llm, role_names=role_names)
+        super().__init__(llm=self.llm, role_names=role_names)
 
     def clean_up_response(self, response: Any) -> dict:
         if isinstance(response, AIMessage):
@@ -65,10 +68,20 @@ class GptBot(Bot):
             }
 
         else:
-            raise TypeError(f"Unsupported return type for GptBot.react() (was {type(response)})")
+            raise TypeError(f"Unsupported return type for GptLlm.invoke() (was {type(response)})")
 
     def get_num_tokens(self, text: str) -> int:
         return ChatOpenAI(temperature=0).get_num_tokens(text)
 
     def get_max_tokens(self) -> int:
         return self.__MODEL_TOKEN_LIMITS.get(self.model_name, 100_000)
+
+    @classmethod
+    def get_supported_models(cls) -> List[str]:
+        return list(cls.MODEL_ALIASES.keys()) + cls.SUPPORTED_MODELS
+
+    def as_runnable(self) -> Runnable:
+        return self.llm
+
+    def as_language_model(self) -> BaseLanguageModel:
+        return self.llm

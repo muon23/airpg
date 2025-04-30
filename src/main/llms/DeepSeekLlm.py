@@ -1,15 +1,18 @@
 import logging
 import os
 import re
-from typing import Any, Tuple
+from typing import Any, Tuple, List
 
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import Runnable
 
-from bots.Bot import Bot
-from bots.HuggingFaceChatRunnable import HuggingFaceChatRunnable
+from llms.Llm import Llm
+from llms.HuggingFaceChatRunnable import HuggingFaceChatRunnable
+from llms.RunnableToLLMAdapter import RunnableToLLMAdapter
 
 
-class DeepSeekBot(Bot):
+class DeepSeekLlm(Llm):
 
     SUPPORTED_MODELS = [
         "deepseek-ai/DeepSeek-R1",
@@ -66,7 +69,7 @@ class DeepSeekBot(Bot):
             metadata = dict()
 
         else:
-            raise TypeError(f"Unsupported return type for HfBot.react() (was {type(response)})")
+            raise TypeError(f"Unsupported return type for HfLlm.invoke() (was {type(response)})")
 
         thought, content = self.__separate_think_tag(content)
         if thought:
@@ -80,3 +83,13 @@ class DeepSeekBot(Bot):
     def get_max_tokens(self) -> int:
         limit = self.__MODEL_TOKEN_LIMITS.get(self.model_name, 4000)
         return limit
+
+    @classmethod
+    def get_supported_models(cls) -> List[str]:
+        return list(cls.MODEL_ALIASES.keys()) + cls.SUPPORTED_MODELS
+
+    def as_runnable(self) -> Runnable:
+        return self.llm
+
+    def as_language_model(self) -> BaseLanguageModel:
+        return RunnableToLLMAdapter(self.as_runnable())

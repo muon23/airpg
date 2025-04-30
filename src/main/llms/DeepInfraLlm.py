@@ -1,29 +1,41 @@
 import logging
 import os
-from typing import Any
+from typing import Any, List
 
-from bots.Bot import Bot
-from bots.DeepInfraChatRunnable import DeepInfraChatRunnable
+from langchain_core.language_models import BaseLanguageModel
+from langchain_core.runnables import Runnable
+
+from llms.Llm import Llm
+from llms.DeepInfraChatRunnable import DeepInfraChatRunnable
+from llms.RunnableToLLMAdapter import RunnableToLLMAdapter
 
 
-class DeepInfraBot(Bot):
+class DeepInfraLlm(Llm):
 
     SUPPORTED_MODELS = [
         "Sao10K/L3.3-70B-Euryale-v2.3",
         "meta-llama/Llama-3.3-70B-Instruct",
         "microsoft/WizardLM-2-8x22B",
+        "google/gemini-2.0-flash-001",
+        "deepseek-ai/DeepSeek-V3-0324",
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
     ]
 
     MODEL_ALIASES = {
+        "llama-4": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
         "euryale": "Sao10K/L3.3-70B-Euryale-v2.3",
         "llama-3": "meta-llama/Llama-3.3-70B-Instruct",
         "wizardlm-2": "microsoft/WizardLM-2-8x22B",
+        "gemini-2": "google/gemini-2.0-flash-001",
+        "deepseek-v3": "deepseek-ai/DeepSeek-V3-0324",
     }
 
     __MODEL_TOKEN_LIMITS = {
         "Sao10K/L3.3-70B-Euryale-v2.3": 131_072,
         "meta-llama/Llama-3.3-70B-Instruct": 128_000,
         "microsoft/WizardLM-2-8x22B": 65_536,
+        "google/gemini-2.0-flash-001": 1_000_000,
+        "deepseek-ai/DeepSeek-V3-0324": 163_840,
     }
 
     __API_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
@@ -60,8 +72,17 @@ class DeepInfraBot(Bot):
             }
 
         else:
-            raise TypeError(f"Unsupported return type for GptBot.react() (was {type(response)})")
+            raise TypeError(f"Unsupported return type for GptLlm.invoke() (was {type(response)})")
 
     def get_max_tokens(self) -> int:
         return self.__MODEL_TOKEN_LIMITS.get(self.model_name, 1000)
 
+    @classmethod
+    def get_supported_models(cls) -> List[str]:
+        return list(cls.MODEL_ALIASES.keys()) + cls.SUPPORTED_MODELS
+
+    def as_runnable(self) -> Runnable:
+        return self.llm
+
+    def as_language_model(self) -> BaseLanguageModel:
+        return RunnableToLLMAdapter(self.as_runnable())

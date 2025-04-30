@@ -1,7 +1,7 @@
 import uuid
 from typing import Collection, Sequence, TypeVar
 
-from bots.Bot import Bot
+from llms.Llm import Llm
 from character.Impression import Impression
 from character.Scene import Scene
 from character.Situation import Situation
@@ -13,7 +13,7 @@ class Character:
     def __init__(
             self,
             name: str,                      # Name of the character
-            engine: Bot,                    # Which AI model drives this character
+            engine: Llm,                    # Which AI model drives this character
             persona: str = None,            # Description of the persona
             where: str = None,              # Location where the character is currently at
             when: str = None,               # Time when the character is currently at
