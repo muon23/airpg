@@ -16,8 +16,21 @@ The Story Editor is a React-based component that provides an interactive interfa
 ### World & Characters Panel (Left Side)
 - Width: 300px (default), resizable between 200px and 500px
 - Collapsible via chevron button
-- When collapsed, shows an expand button (">") at fixed position (left: 12px, top: 76px)
+- When collapsed, shows an expand button (">") at fixed position (left: -30px, top: 76px)
 - Contains:
+  - World selector dropdown
+  - Character assignment sections:
+    - User Controlled (drag & drop)
+    - AI Controlled (drag & drop)
+    - Available Characters (drag & drop)
+
+### Settings Panel (Left Side)
+- Width: 300px (default), resizable between 200px and 500px
+- Collapsible via chevron button
+- When collapsed, shows an expand button (">") at fixed position (left: -30px, top: 76px)
+- Contains:
+  - Engine selector dropdown (e.g., GPT-4, Claude)
+  - Task selector dropdown (e.g., summarize, propose ideas, refine)
   - World selector dropdown
   - Character assignment sections:
     - User Controlled (drag & drop)
@@ -43,13 +56,46 @@ The Story Editor is a React-based component that provides an interactive interfa
 - Smooth resize transitions
 - Visual feedback during resize (cursor change, hover effects)
 
+### User Input Box Features
+- Full-height textarea that fills the container
+- Submit button in upper-right corner (right: 20px, top: 2px)
+- Button styling:
+  - Default opacity: 0.7
+  - Hover opacity: 1.0
+  - Hover color: primary blue
+  - Icon size: 1.2rem
+  - Padding: 4px
+
 ### AI Response Box Features
+- Full-height textarea that fills the container
+- Control buttons in upper-right corner (right: 20px, top: 2px)
+- Button styling:
+  - Default opacity: 0.7
+  - Hover opacity: 1.0
+  - Hover color: primary blue
+  - Icon size: 1.2rem
+  - Padding: 4px
+  - Gap between buttons: 0.1 units
 - Border color changes when edited (primary theme color)
 - Edit mode controls:
   - Edit/Save button
   - Cancel button (reverts to last saved state)
   - Regenerate button
   - Regenerate All Below button (with AutoAwesome icon)
+
+### Section Controls
+- Section Instructions button:
+  - Position: bottom-right of panel
+  - Size: matches edit box buttons
+  - Color: primary blue when hovered or section open
+  - Icon size: 1.2rem
+  - Padding: 4px
+- Delete button:
+  - Position: below section instructions
+  - Size: matches edit box buttons
+  - Color: error color
+  - Icon size: 1.2rem
+  - Padding: 4px
 
 ### Character Management
 - Drag and drop interface for character assignment

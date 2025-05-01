@@ -59,6 +59,7 @@ import {
 import { DragDropContext, Droppable, Draggable, DropResult, DroppableProvided, DraggableProvided } from '@hello-pangea/dnd';
 import { ResizableBox, ResizeCallbackData } from 'react-resizable';
 import 'react-resizable/css/styles.css';
+import { config } from '../config';
 
 interface StoryNode {
   id: string;
@@ -101,6 +102,19 @@ interface Character {
 }
 
 interface World {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface Engine {
+  id: string;
+  name: string;
+  provider: string;
+  version: string;
+}
+
+interface Task {
   id: string;
   name: string;
   description: string;
@@ -387,6 +401,35 @@ const StoryEditor = (): JSX.Element => {
   const [resizingPanel, setResizingPanel] = useState<string | null>(null);
   const [resizeStartY, setResizeStartY] = useState<number>(0);
   const [resizeStartHeight, setResizeStartHeight] = useState<number>(0);
+  const [selectedEngine, setSelectedEngine] = useState<string>(() => {
+    const savedEngine = localStorage.getItem('selectedEngine');
+    return savedEngine || '';
+  });
+  const [selectedTask, setSelectedTask] = useState<string>(() => {
+    const savedTask = localStorage.getItem('selectedTask');
+    return savedTask || '';
+  });
+  const [engines, setEngines] = useState<Engine[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  const fetchConfigurations = async () => {
+    try {
+      const [enginesResponse, tasksResponse] = await Promise.all([
+        fetch(`${config.apiUrl}/api/engines`),
+        fetch(`${config.apiUrl}/api/tasks`)
+      ]);
+      const enginesData = await enginesResponse.json();
+      const tasksData = await tasksResponse.json();
+      setEngines(enginesData);
+      setTasks(tasksData);
+    } catch (error) {
+      console.error('Failed to fetch configurations:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfigurations();
+  }, []);
 
   const handleAddPanel = (index: number) => {
     const newPanel: StoryPanel = {
@@ -488,9 +531,61 @@ const StoryEditor = (): JSX.Element => {
     }));
   };
 
-  const handleSubmit = (id: string) => {
-    // TODO: Implement AI generation
-    console.log('Submitting panel:', id);
+  const handleSubmit = async (panelId: string) => {
+    try {
+      const panel = storyPanels.find(p => p.id === panelId);
+      if (!panel || !activeStory) return;
+
+      // Get the index of the current panel
+      const currentPanelIndex = storyPanels.findIndex(p => p.id === panelId);
+
+      const requestData = {
+        engine: selectedEngine,
+        task: selectedTask,
+        world: worlds.find(w => w.id === activeStory.selectedWorld),
+        characters: characters.filter(c => 
+          c.controlledBy === 'user' || c.controlledBy === 'ai'
+        ).map(c => ({
+          id: c.id,
+          name: c.name,
+          persona: c.persona,
+          controlled_by: c.controlledBy
+        })),
+        story_recap: activeStory.recap,
+        instructions: activeStory.instructions,
+        current_panel_index: currentPanelIndex,
+        panels: storyPanels.map(p => ({
+          user_input: p.userInput,
+          ai_output: p.aiOutput,
+          is_edited: p.isEdited,
+          section_instructions: p.sectionInstructions
+        }))
+      };
+
+      const response = await fetch(`${config.apiUrl}/api/story/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate story');
+      }
+
+      const data = await response.json();
+      
+      setStoryPanels(panels => 
+        panels.map(p => 
+          p.id === panelId 
+            ? { ...p, aiOutput: data.content }
+            : p
+        )
+      );
+    } catch (error) {
+      console.error('Error generating story:', error);
+    }
   };
 
   const handleRegenerate = (id: string) => {
@@ -834,6 +929,14 @@ const StoryEditor = (): JSX.Element => {
     }
   }, [resizingPanel, resizeStartY, resizeStartHeight]);
 
+  useEffect(() => {
+    localStorage.setItem('selectedEngine', selectedEngine);
+  }, [selectedEngine]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedTask', selectedTask);
+  }, [selectedTask]);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Tabs */}
@@ -889,657 +992,851 @@ const StoryEditor = (): JSX.Element => {
 
       {/* Story Content */}
       {activeStory ? (
-        <Box sx={{ flex: 1, p: 3, pl: 1.5, display: 'flex', gap: 2, position: 'relative' }}>
-          {!isWorldPanelCollapsed && (
-            <Box
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+          {isWorldPanelCollapsed && (
+            <IconButton
+              onClick={() => setIsWorldPanelCollapsed(false)}
               sx={{
-                width: worldPanelWidth,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                borderRight: '1px solid',
+                position: 'absolute',
+                left: -30,
+                top: 76,
+                zIndex: 1000,
+                width: 40,
+                height: 40,
+                padding: 0,
+                backgroundColor: 'white',
+                color: 'primary.main',
+                borderRadius: '0 20px 20px 0',
+                border: '1px solid',
                 borderColor: 'divider',
-                position: 'relative',
-                pr: 2
+                '&:hover': {
+                  backgroundColor: 'action.hover',
+                }
               }}
             >
-              {/* Resize Handle */}
+              <ChevronRightIcon fontSize="large" />
+            </IconButton>
+          )}
+          <Box sx={{ flex: 1, p: 3, pl: 1.5, display: 'flex', gap: 2, position: 'relative' }}>
+            {!isWorldPanelCollapsed && (
               <Box
                 sx={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 4,
-                  cursor: 'col-resize',
-                  backgroundColor: 'transparent',
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                  }
+                  width: worldPanelWidth,
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  borderRight: '1px solid',
+                  borderColor: 'divider',
+                  position: 'relative',
+                  pr: 2
                 }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  const startX = e.clientX;
-                  const startWidth = worldPanelWidth;
+              >
+                {/* Resize Handle */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 4,
+                    cursor: 'col-resize',
+                    backgroundColor: 'transparent',
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const startX = e.clientX;
+                    const startWidth = worldPanelWidth;
 
-                  const handleMouseMove = (e: MouseEvent) => {
-                    const deltaX = e.clientX - startX;
-                    const newWidth = Math.max(200, Math.min(500, startWidth + deltaX));
-                    setWorldPanelWidth(newWidth);
-                  };
+                    const handleMouseMove = (e: MouseEvent) => {
+                      const deltaX = e.clientX - startX;
+                      const newWidth = Math.max(200, Math.min(500, startWidth + deltaX));
+                      setWorldPanelWidth(newWidth);
+                    };
 
-                  const handleMouseUp = () => {
-                    document.removeEventListener('mousemove', handleMouseMove);
-                    document.removeEventListener('mouseup', handleMouseUp);
-                  };
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
 
-                  document.addEventListener('mousemove', handleMouseMove);
-                  document.addEventListener('mouseup', handleMouseUp);
-                }}
-              />
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                />
 
-              {/* Panel Content */}
-              <Box sx={{ pl: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-                  <Typography variant="subtitle1">World & Characters</Typography>
-                  <IconButton
-                    onClick={() => setIsWorldPanelCollapsed(true)}
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      padding: 0,
-                      backgroundColor: 'background.paper',
-                      color: 'primary.main',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      '&:hover': {
-                        backgroundColor: 'action.hover',
-                      }
-                    }}
-                  >
-                    <ChevronLeftIcon fontSize="large" />
-                  </IconButton>
+                {/* Panel Content */}
+                <Box sx={{ pl: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+                    <Typography variant="subtitle1">Settings</Typography>
+                    <IconButton
+                      onClick={() => setIsWorldPanelCollapsed(true)}
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        padding: 0,
+                        backgroundColor: 'background.paper',
+                        color: 'primary.main',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        '&:hover': {
+                          backgroundColor: 'action.hover',
+                        }
+                      }}
+                    >
+                      <ChevronLeftIcon fontSize="large" />
+                    </IconButton>
+                  </Box>
+
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>Engine</InputLabel>
+                    <Select
+                      value={selectedEngine || ''}
+                      onChange={(e) => setSelectedEngine(e.target.value)}
+                      label="Engine"
+                    >
+                      {engines.map(engine => (
+                        <MenuItem key={engine.id} value={engine.id}>{engine.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>Task</InputLabel>
+                    <Select
+                      value={selectedTask || ''}
+                      onChange={(e) => setSelectedTask(e.target.value)}
+                      label="Task"
+                    >
+                      {tasks.map(task => (
+                        <MenuItem key={task.id} value={task.id}>{task.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>World</InputLabel>
+                    <Select
+                      value={activeStory?.selectedWorld || ''}
+                      onChange={(e) => handleWorldSelection(e.target.value)}
+                      label="World"
+                    >
+                      {worlds.map(world => (
+                        <MenuItem key={world.id} value={world.id}>{world.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>Character Assignment</Typography>
+                  <DragDropContext onDragEnd={handleDragEnd}>
+                    <Droppable droppableId="user-controlled" type="characters">
+                      {(provided: DroppableProvided) => (
+                        <Paper 
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          sx={{ p: 2, mb: 2 }}
+                        >
+                          <Typography variant="subtitle2" gutterBottom>
+                            User Controlled
+                          </Typography>
+                          {renderCharacterList('user')}
+                          {provided.placeholder}
+                        </Paper>
+                      )}
+                    </Droppable>
+
+                    <Droppable droppableId="ai-controlled" type="characters">
+                      {(provided: DroppableProvided) => (
+                        <Paper 
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          sx={{ p: 2, mb: 2 }}
+                        >
+                          <Typography variant="subtitle2" gutterBottom>
+                            AI Controlled
+                          </Typography>
+                          {renderCharacterList('ai')}
+                          {provided.placeholder}
+                        </Paper>
+                      )}
+                    </Droppable>
+
+                    <Droppable droppableId="available-characters" type="characters">
+                      {(provided: DroppableProvided) => (
+                        <Paper 
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          sx={{ p: 2 }}
+                        >
+                          <Typography variant="subtitle2" gutterBottom>
+                            Available Characters
+                          </Typography>
+                          {renderCharacterList('unassigned')}
+                          {provided.placeholder}
+                        </Paper>
+                      )}
+                    </Droppable>
+                  </DragDropContext>
                 </Box>
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>World</InputLabel>
-                  <Select
-                    value={activeStory?.selectedWorld || ''}
-                    onChange={(e) => handleWorldSelection(e.target.value)}
-                    label="World"
-                  >
-                    {worlds.map(world => (
-                      <MenuItem key={world.id} value={world.id}>{world.name}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>Character Assignment</Typography>
-                <DragDropContext onDragEnd={handleDragEnd}>
-                  <Droppable droppableId="user-controlled" type="characters">
-                    {(provided: DroppableProvided) => (
-                      <Paper 
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        sx={{ p: 2, mb: 2 }}
-                      >
-                        <Typography variant="subtitle2" gutterBottom>
-                          User Controlled
-                        </Typography>
-                        {renderCharacterList('user')}
-                        {provided.placeholder}
-                      </Paper>
-                    )}
-                  </Droppable>
-
-                  <Droppable droppableId="ai-controlled" type="characters">
-                    {(provided: DroppableProvided) => (
-                      <Paper 
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        sx={{ p: 2, mb: 2 }}
-                      >
-                        <Typography variant="subtitle2" gutterBottom>
-                          AI Controlled
-                        </Typography>
-                        {renderCharacterList('ai')}
-                        {provided.placeholder}
-                      </Paper>
-                    )}
-                  </Droppable>
-
-                  <Droppable droppableId="available-characters" type="characters">
-                    {(provided: DroppableProvided) => (
-                      <Paper 
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        sx={{ p: 2 }}
-                      >
-                        <Typography variant="subtitle2" gutterBottom>
-                          Available Characters
-                        </Typography>
-                        {renderCharacterList('unassigned')}
-                        {provided.placeholder}
-                      </Paper>
-                    )}
-                  </Droppable>
-                </DragDropContext>
               </Box>
-            </Box>
-          )}
+            )}
 
-          {/* Character Edit Dialog */}
-          <Dialog 
-            open={!!editingCharacter} 
-            onClose={() => setEditingCharacter(null)}
-            maxWidth="sm"
-            fullWidth
-          >
-            <DialogTitle>
-              {editingCharacter?.id === characters[characters.length - 1]?.id ? 'Add Character' : 'Edit Character'}
-            </DialogTitle>
-            <DialogContent>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-                <TextField
-                  label="Name"
-                  value={editingCharacter?.name || ''}
-                  onChange={(e) => setEditingCharacter({ ...editingCharacter!, name: e.target.value })}
-                  fullWidth
-                  error={characters.some(
-                    char => char.id !== editingCharacter?.id && 
-                    char.name.toLowerCase() === editingCharacter?.name.toLowerCase()
-                  )}
-                  helperText={
-                    characters.some(
+            {/* Character Edit Dialog */}
+            <Dialog 
+              open={!!editingCharacter} 
+              onClose={() => setEditingCharacter(null)}
+              maxWidth="sm"
+              fullWidth
+            >
+              <DialogTitle>
+                {editingCharacter?.id === characters[characters.length - 1]?.id ? 'Add Character' : 'Edit Character'}
+              </DialogTitle>
+              <DialogContent>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                  <TextField
+                    label="Name"
+                    value={editingCharacter?.name || ''}
+                    onChange={(e) => setEditingCharacter({ ...editingCharacter!, name: e.target.value })}
+                    fullWidth
+                    error={characters.some(
                       char => char.id !== editingCharacter?.id && 
                       char.name.toLowerCase() === editingCharacter?.name.toLowerCase()
-                    ) ? 'A character with this name already exists' : ''
-                  }
-                />
-                <TextField
-                  label="Persona"
-                  value={editingCharacter?.persona || ''}
-                  onChange={(e) => setEditingCharacter({ ...editingCharacter!, persona: e.target.value })}
-                  multiline
-                  rows={4}
-                  fullWidth
-                />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  {editingCharacter?.icon ? (
-                    <Avatar 
-                      src={editingCharacter.icon} 
-                      sx={{ width: 64, height: 64 }}
-                    />
-                  ) : (
-                    <Avatar sx={{ width: 64, height: 64 }}>
-                      <PersonIcon />
-                    </Avatar>
-                  )}
-                  <Button
-                    variant="outlined"
-                    component="label"
-                    startIcon={<AddPhotoIcon />}
-                  >
-                    Upload Image
-                    <input
-                      type="file"
-                      hidden
-                      accept="image/*"
-                      onChange={(e) => handleImageUpload(e, editingCharacter!.id)}
-                    />
-                  </Button>
+                    )}
+                    helperText={
+                      characters.some(
+                        char => char.id !== editingCharacter?.id && 
+                        char.name.toLowerCase() === editingCharacter?.name.toLowerCase()
+                      ) ? 'A character with this name already exists' : ''
+                    }
+                  />
+                  <TextField
+                    label="Persona"
+                    value={editingCharacter?.persona || ''}
+                    onChange={(e) => setEditingCharacter({ ...editingCharacter!, persona: e.target.value })}
+                    multiline
+                    rows={4}
+                    fullWidth
+                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {editingCharacter?.icon ? (
+                      <Avatar 
+                        src={editingCharacter.icon} 
+                        sx={{ width: 64, height: 64 }}
+                      />
+                    ) : (
+                      <Avatar sx={{ width: 64, height: 64 }}>
+                        <PersonIcon />
+                      </Avatar>
+                    )}
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      startIcon={<AddPhotoIcon />}
+                    >
+                      Upload Image
+                      <input
+                        type="file"
+                        hidden
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e, editingCharacter!.id)}
+                      />
+                    </Button>
+                  </Box>
                 </Box>
-              </Box>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setEditingCharacter(null)}>Cancel</Button>
-              <Button 
-                onClick={() => handleCharacterUpdate(editingCharacter!)}
-                variant="contained"
-                disabled={!editingCharacter?.name || !editingCharacter?.persona}
-              >
-                {editingCharacter?.id === characters[characters.length - 1]?.id ? 'Add' : 'Save'}
-              </Button>
-            </DialogActions>
-          </Dialog>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setEditingCharacter(null)}>Cancel</Button>
+                <Button 
+                  onClick={() => handleCharacterUpdate(editingCharacter!)}
+                  variant="contained"
+                  disabled={!editingCharacter?.name || !editingCharacter?.persona}
+                >
+                  {editingCharacter?.id === characters[characters.length - 1]?.id ? 'Add' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
 
-          {/* World Manager Dialog */}
-          <Dialog 
-            open={!!editingWorld} 
-            onClose={() => setEditingWorld(null)}
-            maxWidth="sm"
-            fullWidth
-          >
-            <DialogTitle>
-              {editingWorld?.id === worlds[worlds.length - 1]?.id ? 'Add World' : 'Edit World'}
-            </DialogTitle>
-            <DialogContent>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-                <TextField
-                  label="Name"
-                  value={editingWorld?.name || ''}
-                  onChange={(e) => setEditingWorld({ ...editingWorld!, name: e.target.value })}
-                  fullWidth
-                  error={worlds.some(
-                    world => world.id !== editingWorld?.id && 
-                    world.name.toLowerCase() === editingWorld?.name.toLowerCase()
-                  )}
-                  helperText={
-                    worlds.some(
+            {/* World Manager Dialog */}
+            <Dialog 
+              open={!!editingWorld} 
+              onClose={() => setEditingWorld(null)}
+              maxWidth="sm"
+              fullWidth
+            >
+              <DialogTitle>
+                {editingWorld?.id === worlds[worlds.length - 1]?.id ? 'Add World' : 'Edit World'}
+              </DialogTitle>
+              <DialogContent>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                  <TextField
+                    label="Name"
+                    value={editingWorld?.name || ''}
+                    onChange={(e) => setEditingWorld({ ...editingWorld!, name: e.target.value })}
+                    fullWidth
+                    error={worlds.some(
                       world => world.id !== editingWorld?.id && 
                       world.name.toLowerCase() === editingWorld?.name.toLowerCase()
-                    ) ? 'A world with this name already exists' : ''
-                  }
-                />
+                    )}
+                    helperText={
+                      worlds.some(
+                        world => world.id !== editingWorld?.id && 
+                        world.name.toLowerCase() === editingWorld?.name.toLowerCase()
+                      ) ? 'A world with this name already exists' : ''
+                    }
+                  />
+                  <TextField
+                    label="Description"
+                    value={editingWorld?.description || ''}
+                    onChange={(e) => setEditingWorld({ ...editingWorld!, description: e.target.value })}
+                    multiline
+                    rows={4}
+                    fullWidth
+                  />
+                </Box>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setEditingWorld(null)}>Cancel</Button>
+                <Button 
+                  onClick={() => handleWorldUpdate(editingWorld!)}
+                  variant="contained"
+                  disabled={!editingWorld?.name || !editingWorld?.description}
+                >
+                  {editingWorld?.id === worlds[worlds.length - 1]?.id ? 'Add' : 'Save'}
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Story Content */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Story Title and Actions */}
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                 <TextField
-                  label="Description"
-                  value={editingWorld?.description || ''}
-                  onChange={(e) => setEditingWorld({ ...editingWorld!, description: e.target.value })}
-                  multiline
-                  rows={4}
                   fullWidth
+                  variant="outlined"
+                  placeholder="Story Title"
+                  value={activeStory.title}
+                  onChange={(e) => handleTitleChange(e.target.value)}
+                  sx={{ 
+                    '& .MuiInputBase-input': {
+                      fontSize: '2rem',
+                      fontWeight: 'bold'
+                    }
+                  }}
                 />
-              </Box>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setEditingWorld(null)}>Cancel</Button>
-              <Button 
-                onClick={() => handleWorldUpdate(editingWorld!)}
-                variant="contained"
-                disabled={!editingWorld?.name || !editingWorld?.description}
-              >
-                {editingWorld?.id === worlds[worlds.length - 1]?.id ? 'Add' : 'Save'}
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          {/* Story Content */}
-          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* Story Title and Actions */}
-            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-              <TextField
-                fullWidth
-                variant="outlined"
-                placeholder="Story Title"
-                value={activeStory.title}
-                onChange={(e) => handleTitleChange(e.target.value)}
-                sx={{ 
-                  '& .MuiInputBase-input': {
-                    fontSize: '2rem',
-                    fontWeight: 'bold'
-                  }
-                }}
-              />
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Tooltip title="Load story">
-                  <IconButton onClick={handleLoadStory}>
-                    <FolderOpenIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Undo">
-                  <IconButton>
-                    <UndoIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Redo">
-                  <IconButton>
-                    <RedoIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Save story">
-                  <IconButton>
-                    <SaveIcon />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </Box>
-
-            {/* Story Recap */}
-            <Paper>
-              <Box 
-                sx={{ 
-                  p: 2, 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  cursor: 'pointer',
-                  bgcolor: 'background.default'
-                }}
-                onClick={() => setRecapExpanded(!recapExpanded)}
-              >
-                <Typography variant="subtitle1">Story Recap</Typography>
-                {recapExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-              </Box>
-              <Collapse in={recapExpanded}>
-                <Box sx={{ p: 2 }}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={4}
-                    placeholder="Add a recap of the story so far..."
-                    value={activeStory.recap}
-                    onChange={(e) => handleStoryContentChange('recap', e.target.value)}
-                  />
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Tooltip title="Load story">
+                    <IconButton onClick={handleLoadStory}>
+                      <FolderOpenIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Undo">
+                    <IconButton>
+                      <UndoIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Redo">
+                    <IconButton>
+                      <RedoIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Save story">
+                    <IconButton>
+                      <SaveIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
-              </Collapse>
-            </Paper>
-
-            {/* Story Instructions */}
-            <Paper>
-              <Box 
-                sx={{ 
-                  p: 2, 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  cursor: 'pointer',
-                  bgcolor: 'background.default'
-                }}
-                onClick={() => setInstructionsExpanded(!instructionsExpanded)}
-              >
-                <Typography variant="subtitle1">Instructions to AI</Typography>
-                {instructionsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </Box>
-              <Collapse in={instructionsExpanded}>
-                <Box sx={{ p: 2 }}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={4}
-                    placeholder="Add instructions for the AI about this chapter..."
-                    value={activeStory.instructions}
-                    onChange={(e) => handleStoryContentChange('instructions', e.target.value)}
-                  />
+
+              {/* Story Recap */}
+              <Paper>
+                <Box 
+                  sx={{ 
+                    p: 2, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    bgcolor: 'background.default'
+                  }}
+                  onClick={() => setRecapExpanded(!recapExpanded)}
+                >
+                  <Typography variant="subtitle1">Story Recap</Typography>
+                  {recapExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                 </Box>
-              </Collapse>
-            </Paper>
+                <Collapse in={recapExpanded}>
+                  <Box sx={{ p: 2 }}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      placeholder="Add a recap of the story so far..."
+                      value={activeStory.recap}
+                      onChange={(e) => handleStoryContentChange('recap', e.target.value)}
+                    />
+                  </Box>
+                </Collapse>
+              </Paper>
 
-            {/* Story Panels */}
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="story-panels" type="panels">
-                {(provided: DroppableProvided) => (
-                  <Box 
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    sx={{ display: 'flex', flexDirection: 'column', gap: 1, position: 'relative' }}
-                  >
-                    {/* Undo Actions */}
-                    <Box sx={{ 
-                      position: 'absolute', 
-                      right: 8, 
-                      top: -40,
-                      display: 'flex',
-                      gap: 1
-                    }}>
-                      {deletedPanels.length > 0 && (
-                        <Tooltip title="Undo Delete">
-                          <IconButton
-                            size="small"
-                            onClick={handleUndoDelete}
-                          >
-                            <UndoIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {lastEditedPanels.length > 0 && (
-                        <Tooltip title="Undo Edit">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleUndoEdit(lastEditedPanels[0].id)}
-                          >
-                            <RestoreIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
+              {/* Story Instructions */}
+              <Paper>
+                <Box 
+                  sx={{ 
+                    p: 2, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    bgcolor: 'background.default'
+                  }}
+                  onClick={() => setInstructionsExpanded(!instructionsExpanded)}
+                >
+                  <Typography variant="subtitle1">Instructions to AI</Typography>
+                  {instructionsExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                </Box>
+                <Collapse in={instructionsExpanded}>
+                  <Box sx={{ p: 2 }}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={4}
+                      placeholder="Add instructions for the AI about this chapter..."
+                      value={activeStory.instructions}
+                      onChange={(e) => handleStoryContentChange('instructions', e.target.value)}
+                    />
+                  </Box>
+                </Collapse>
+              </Paper>
 
-                    {/* Add panel button at the top */}
-                    <Box sx={{ 
-                      position: 'absolute', 
-                      left: '50%', 
-                      transform: 'translateX(-50%)',
-                      top: -20,
-                      zIndex: 1 
-                    }}>
-                      <IconButton
-                        onClick={() => handleAddPanel(-1)}
-                        sx={{
-                          border: '1px solid',
-                          borderRadius: '50%',
-                          width: 40,
-                          height: 40,
-                          backgroundColor: 'background.paper',
-                        }}
-                      >
-                        <AddIcon />
-                      </IconButton>
-                    </Box>
-
-                    {storyPanels.map((panel, index) => (
-                      <React.Fragment key={panel.id}>
-                        <Draggable key={panel.id} draggableId={panel.id} index={index}>
-                          {(provided: DraggableProvided) => (
-                            <Paper
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              sx={{ p: 2, display: 'flex', gap: 2, position: 'relative' }}
+              {/* Story Panels */}
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <Droppable droppableId="story-panels" type="panels">
+                  {(provided: DroppableProvided) => (
+                    <Box 
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      sx={{ display: 'flex', flexDirection: 'column', gap: 1, position: 'relative' }}
+                    >
+                      {/* Undo Actions */}
+                      <Box sx={{ 
+                        position: 'absolute', 
+                        right: 8, 
+                        top: -40,
+                        display: 'flex',
+                        gap: 1
+                      }}>
+                        {deletedPanels.length > 0 && (
+                          <Tooltip title="Undo Delete">
+                            <IconButton
+                              size="small"
+                              onClick={handleUndoDelete}
                             >
-                              {/* Drag handle - only for reordering */}
-                              <Box 
-                                {...provided.dragHandleProps}
-                                sx={{ 
-                                  position: 'absolute', 
-                                  left: 4, 
-                                  top: '50%', 
-                                  transform: 'translateY(-50%)',
-                                  cursor: 'grab',
-                                  zIndex: 1
-                                }}
+                              <UndoIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {lastEditedPanels.length > 0 && (
+                          <Tooltip title="Undo Edit">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleUndoEdit(lastEditedPanels[0].id)}
+                            >
+                              <RestoreIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+
+                      {/* Add panel button at the top */}
+                      <Box sx={{ 
+                        position: 'absolute', 
+                        left: '50%', 
+                        transform: 'translateX(-50%)',
+                        top: -20,
+                        zIndex: 1 
+                      }}>
+                        <IconButton
+                          onClick={() => handleAddPanel(-1)}
+                          sx={{
+                            border: '1px solid',
+                            borderRadius: '50%',
+                            width: 40,
+                            height: 40,
+                            backgroundColor: 'background.paper',
+                          }}
+                        >
+                          <AddIcon />
+                        </IconButton>
+                      </Box>
+
+                      {storyPanels.map((panel, index) => (
+                        <React.Fragment key={panel.id}>
+                          <Draggable key={panel.id} draggableId={panel.id} index={index}>
+                            {(provided: DraggableProvided) => (
+                              <Paper
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                sx={{ p: 2, display: 'flex', gap: 2, position: 'relative' }}
                               >
-                                <DragIndicatorIcon />
-                              </Box>
-
-                              {/* User Input Box */}
-                              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', ml: 2, position: 'relative' }}>
-                                <Box
-                                  sx={{
-                                    height: panelHeights[`${panel.id}-input`] || 200,
-                                    minHeight: 100,
-                                    maxHeight: 500,
-                                    position: 'relative',
-                                    marginBottom: 0,
-                                    border: '1px solid',
-                                    borderColor: 'divider',
-                                    borderRadius: 1,
-                                    overflow: 'hidden'
+                                {/* Drag handle - only for reordering */}
+                                <Box 
+                                  {...provided.dragHandleProps}
+                                  sx={{ 
+                                    position: 'absolute', 
+                                    left: 4, 
+                                    top: '50%', 
+                                    transform: 'translateY(-50%)',
+                                    cursor: 'grab',
+                                    zIndex: 1
                                   }}
                                 >
-                                  <TextField
-                                    fullWidth
-                                    multiline
-                                    rows={4}
-                                    placeholder="Enter your story input..."
-                                    value={panel.userInput}
-                                    onChange={(e) => {
-                                      const newPanels = [...storyPanels];
-                                      newPanels[index] = { ...panel, userInput: e.target.value };
-                                      setStoryPanels(newPanels);
-                                    }}
-                                    sx={{ 
-                                      height: '100%',
-                                      '& .MuiOutlinedInput-root': {
-                                        height: '100%',
-                                        alignItems: 'flex-start',
-                                        paddingBottom: '32px'
-                                      }
-                                    }}
-                                  />
+                                  <DragIndicatorIcon />
                                 </Box>
-                              </Box>
 
-                              {/* AI Response Box */}
-                              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', ml: 0.33, position: 'relative' }}>
+                                {/* User Input Box */}
+                                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', ml: 2, position: 'relative' }}>
+                                  <Box
+                                    sx={{
+                                      height: panelHeights[`${panel.id}-input`] || 200,
+                                      minHeight: 100,
+                                      maxHeight: 500,
+                                      position: 'relative',
+                                      marginBottom: 0,
+                                      border: '1px solid',
+                                      borderColor: 'divider',
+                                      borderRadius: 1,
+                                      overflow: 'hidden'
+                                    }}
+                                  >
+                                    <textarea
+                                      placeholder="Enter your story input..."
+                                      value={panel.userInput}
+                                      onChange={(e) => {
+                                        const newPanels = [...storyPanels];
+                                        newPanels[index] = { ...panel, userInput: e.target.value };
+                                        setStoryPanels(newPanels);
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        padding: '8px',
+                                        border: 'none',
+                                        outline: 'none',
+                                        resize: 'none',
+                                        fontFamily: 'inherit',
+                                        fontSize: 'inherit',
+                                        backgroundColor: 'transparent',
+                                        color: 'black'
+                                      }}
+                                    />
+                                    <Box sx={{ 
+                                      position: 'absolute', 
+                                      right: 20, 
+                                      top: 2,
+                                      opacity: 0.7,
+                                      '&:hover': {
+                                        opacity: 1
+                                      }
+                                    }}>
+                                      <Tooltip title="Submit">
+                                        <IconButton
+                                          size="small"
+                                          onClick={() => handleSubmit(panel.id)}
+                                          sx={{ 
+                                            padding: '4px',
+                                            '& .MuiSvgIcon-root': {
+                                              fontSize: '1.2rem'
+                                            },
+                                            '&:hover': {
+                                              color: 'primary.main'
+                                            }
+                                          }}
+                                        >
+                                          <SendIcon />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Box>
+                                  </Box>
+                                </Box>
+
+                                {/* AI Response Box */}
+                                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', ml: 0.33, position: 'relative' }}>
+                                  <Box
+                                    sx={{
+                                      height: panelHeights[`${panel.id}-output`] || 200,
+                                      minHeight: 100,
+                                      maxHeight: 500,
+                                      position: 'relative',
+                                      marginBottom: 0,
+                                      border: '1px solid',
+                                      borderColor: panel.isEdited ? 'primary.main' : 'divider',
+                                      borderRadius: 1,
+                                      overflow: 'hidden'
+                                    }}
+                                  >
+                                    <textarea
+                                      placeholder="AI response will appear here..."
+                                      value={panel.aiOutput}
+                                      onChange={(e) => {
+                                        const newPanels = [...storyPanels];
+                                        newPanels[index] = { ...panel, aiOutput: e.target.value };
+                                        setStoryPanels(newPanels);
+                                      }}
+                                      disabled={!panel.isEditing}
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        padding: '8px',
+                                        border: 'none',
+                                        outline: 'none',
+                                        resize: 'none',
+                                        fontFamily: 'inherit',
+                                        fontSize: 'inherit',
+                                        backgroundColor: 'transparent',
+                                        color: 'black'
+                                      }}
+                                    />
+                                    <Box sx={{ 
+                                      position: 'absolute', 
+                                      right: 20, 
+                                      top: 2,
+                                      display: 'flex', 
+                                      gap: 0.1,
+                                      opacity: 0.7,
+                                      '&:hover': {
+                                        opacity: 1,
+                                        '& .MuiIconButton-root': {
+                                          color: 'primary.main'
+                                        }
+                                      }
+                                    }}>
+                                      {panel.isEditing ? (
+                                        <>
+                                          <Tooltip title="Save">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleSubmitEdit(panel.id)}
+                                              sx={{ 
+                                                padding: '4px',
+                                                '& .MuiSvgIcon-root': {
+                                                  fontSize: '1.2rem'
+                                                }
+                                              }}
+                                            >
+                                              <SaveIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                          <Tooltip title="Cancel">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleUndoEdit(panel.id)}
+                                              sx={{ 
+                                                padding: '4px',
+                                                '& .MuiSvgIcon-root': {
+                                                  fontSize: '1.2rem'
+                                                }
+                                              }}
+                                            >
+                                              <UndoIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Tooltip title="Edit">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleEditToggle(panel.id)}
+                                              sx={{ 
+                                                padding: '4px',
+                                                '& .MuiSvgIcon-root': {
+                                                  fontSize: '1.2rem'
+                                                }
+                                              }}
+                                            >
+                                              <EditIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                          <Tooltip title="Regenerate">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleRegenerate(panel.id)}
+                                              sx={{ 
+                                                padding: '4px',
+                                                '& .MuiSvgIcon-root': {
+                                                  fontSize: '1.2rem'
+                                                }
+                                              }}
+                                            >
+                                              <RefreshIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                          <Tooltip title="Regenerate All Below">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleRegenerateBelow(panel.id)}
+                                              sx={{ 
+                                                padding: '4px',
+                                                '& .MuiSvgIcon-root': {
+                                                  fontSize: '1.2rem'
+                                                }
+                                              }}
+                                            >
+                                              <AutoAwesomeIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                        </>
+                                      )}
+                                    </Box>
+                                  </Box>
+                                </Box>
+
+                                {/* Resize Handle */}
                                 <Box
+                                  onMouseDown={(e) => handleResizeStart(panel.id, e)}
                                   sx={{
-                                    height: panelHeights[`${panel.id}-output`] || 200,
-                                    minHeight: 100,
-                                    maxHeight: 500,
-                                    position: 'relative',
-                                    marginBottom: 0,
-                                    border: '1px solid',
-                                    borderColor: panel.isEdited ? 'primary.main' : 'divider',
-                                    borderRadius: 1,
-                                    overflow: 'hidden'
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    height: 4,
+                                    backgroundColor: 'divider',
+                                    opacity: 0.5,
+                                    transition: 'opacity 0.2s',
+                                    '&:hover': {
+                                      opacity: 1,
+                                      backgroundColor: 'primary.main',
+                                      height: 6,
+                                      cursor: 'ns-resize'
+                                    }
                                   }}
-                                >
-                                  <TextField
-                                    fullWidth
-                                    multiline
-                                    rows={4}
-                                    placeholder="AI response will appear here..."
-                                    value={panel.aiOutput}
-                                    onChange={(e) => {
-                                      const newPanels = [...storyPanels];
-                                      newPanels[index] = { ...panel, aiOutput: e.target.value };
-                                      setStoryPanels(newPanels);
-                                    }}
-                                    disabled={!panel.isEditing}
-                                    sx={{ 
-                                      height: '100%',
-                                      '& .MuiOutlinedInput-root': {
-                                        height: '100%',
-                                        alignItems: 'flex-start',
-                                        paddingBottom: '32px'
-                                      }
-                                    }}
-                                  />
-                                </Box>
-                              </Box>
+                                />
 
-                              {/* Resize Handle */}
-                              <Box
-                                onMouseDown={(e) => handleResizeStart(panel.id, e)}
-                                sx={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 4,
-                                  backgroundColor: 'divider',
-                                  opacity: 0.5,
-                                  transition: 'opacity 0.2s',
-                                  '&:hover': {
-                                    opacity: 1,
-                                    backgroundColor: 'primary.main',
-                                    height: 6,
-                                    cursor: 'ns-resize'
-                                  }
-                                }}
-                              />
-
-                              {/* Section Instructions and Delete Buttons */}
-                              <Box sx={{ 
-                                position: 'absolute', 
-                                right: 0, 
-                                bottom: 8,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 1,
-                                zIndex: 1,
-                                marginLeft: 24
-                              }}>
-                                <Tooltip title="Section Instructions">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleSectionInstructionsToggle(panel.id)}
-                                    sx={{ 
-                                      color: sectionInstructionsOpen[panel.id] ? 'primary.main' : 'inherit',
-                                      transform: sectionInstructionsOpen[panel.id] ? 'rotate(180deg)' : 'none',
-                                      transition: 'transform 0.2s'
-                                    }}
-                                  >
-                                    <SettingsIcon />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete Panel">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleDeletePanel(panel.id)}
-                                    sx={{ color: 'error.main' }}
-                                  >
-                                    <DeleteIcon />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
-
-                              {/* Section Instructions Content */}
-                              <Collapse in={sectionInstructionsOpen[panel.id]}>
+                                {/* Section Instructions and Delete Buttons */}
                                 <Box sx={{ 
                                   position: 'absolute', 
-                                  right: 0, 
-                                  bottom: 0,
-                                  width: '100%',
-                                  bgcolor: 'background.paper',
-                                  p: 2,
-                                  borderTop: '1px solid',
-                                  borderColor: 'divider'
+                                  right: 2, 
+                                  bottom: 15,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  zIndex: 1,
+                                  marginLeft: 24
                                 }}>
-                                  <TextField
-                                    fullWidth
-                                    multiline
-                                    rows={2}
-                                    placeholder="Add special instructions for this section..."
-                                    value={panel.sectionInstructions}
-                                    onChange={(e) => {
-                                      const newPanels = [...storyPanels];
-                                      newPanels[index] = { 
-                                        ...panel, 
-                                        sectionInstructions: e.target.value 
-                                      };
-                                      setStoryPanels(newPanels);
-                                    }}
-                                  />
+                                  <Tooltip title="Section Instructions">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleSectionInstructionsToggle(panel.id)}
+                                      sx={{ 
+                                        color: sectionInstructionsOpen[panel.id] ? 'primary.main' : 'inherit',
+                                        transform: sectionInstructionsOpen[panel.id] ? 'rotate(180deg)' : 'none',
+                                        transition: 'transform 0.2s',
+                                        padding: '4px',
+                                        '& .MuiSvgIcon-root': {
+                                          fontSize: '1.2rem'
+                                        },
+                                        '&:hover': {
+                                          color: 'primary.main'
+                                        }
+                                      }}
+                                    >
+                                      <SettingsIcon />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete Panel">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeletePanel(panel.id)}
+                                      sx={{ 
+                                        color: 'error.main',
+                                        padding: '4px',
+                                        '& .MuiSvgIcon-root': {
+                                          fontSize: '1.2rem'
+                                        }
+                                      }}
+                                    >
+                                      <DeleteIcon />
+                                    </IconButton>
+                                  </Tooltip>
                                 </Box>
-                              </Collapse>
 
-                              {/* Add panel button at the bottom of each panel */}
-                              <Box sx={{ 
-                                position: 'absolute', 
-                                left: '50%', 
-                                transform: 'translateX(-50%)',
-                                bottom: -20,
-                                zIndex: 1 
-                              }}>
-                                <Tooltip title="Add new panel">
-                                  <IconButton
-                                    onClick={() => handleAddPanel(index)}
-                                    sx={{
-                                      border: '1px solid',
-                                      borderRadius: '50%',
-                                      width: 40,
-                                      height: 40,
-                                      backgroundColor: 'background.paper',
-                                      '&:hover': {
-                                        backgroundColor: 'action.hover',
-                                      }
-                                    }}
-                                  >
-                                    <AddIcon />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
-                            </Paper>
-                          )}
-                        </Draggable>
-                      </React.Fragment>
-                    ))}
+                                {/* Section Instructions Content */}
+                                <Collapse in={sectionInstructionsOpen[panel.id]}>
+                                  <Box sx={{ 
+                                    position: 'absolute', 
+                                    right: 0, 
+                                    bottom: 0,
+                                    width: '100%',
+                                    bgcolor: 'background.paper',
+                                    p: 2,
+                                    borderTop: '1px solid',
+                                    borderColor: 'divider'
+                                  }}>
+                                    <TextField
+                                      fullWidth
+                                      multiline
+                                      rows={2}
+                                      placeholder="Add special instructions for this section..."
+                                      value={panel.sectionInstructions}
+                                      onChange={(e) => {
+                                        const newPanels = [...storyPanels];
+                                        newPanels[index] = { 
+                                          ...panel, 
+                                          sectionInstructions: e.target.value 
+                                        };
+                                        setStoryPanels(newPanels);
+                                      }}
+                                    />
+                                  </Box>
+                                </Collapse>
 
-                    {provided.placeholder}
-                  </Box>
-                )}
-              </Droppable>
-            </DragDropContext>
+                                {/* Add panel button at the bottom of each panel */}
+                                <Box sx={{ 
+                                  position: 'absolute', 
+                                  left: '50%', 
+                                  transform: 'translateX(-50%)',
+                                  bottom: -20,
+                                  zIndex: 1 
+                                }}>
+                                  <Tooltip title="Add new panel">
+                                    <IconButton
+                                      onClick={() => handleAddPanel(index)}
+                                      sx={{
+                                        border: '1px solid',
+                                        borderRadius: '50%',
+                                        width: 40,
+                                        height: 40,
+                                        backgroundColor: 'background.paper',
+                                        '&:hover': {
+                                          backgroundColor: 'action.hover',
+                                        }
+                                      }}
+                                    >
+                                      <AddIcon />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              </Paper>
+                            )}
+                          </Draggable>
+                        </React.Fragment>
+                      ))}
+
+                      {provided.placeholder}
+                    </Box>
+                  )}
+                </Droppable>
+              </DragDropContext>
+            </Box>
           </Box>
         </Box>
       ) : null}
+
+      {/* Add Settings button to the toolbar */}
+      <AppBar position="static" color="default" elevation={0}>
+        <Toolbar>
+          {/* ... existing toolbar content ... */}
+        </Toolbar>
+      </AppBar>
     </Box>
   );
 };
