@@ -74,7 +74,7 @@ interface StoryNode {
 interface Story {
   id: string;
   title: string;
-  alias?: string;
+  fileName: string;
   recap: string;
   instructions: string;
   panels: StoryPanel[];
@@ -145,8 +145,6 @@ const StoryEditor = (): JSX.Element => {
     const savedActiveTab = localStorage.getItem('activeTab');
     return savedActiveTab || null;
   });
-  const [editingTab, setEditingTab] = useState<string | null>(null);
-  const [editingValue, setEditingValue] = useState('');
 
   // Character and World state
   const [characters, setCharacters] = useState<Character[]>(() => {
@@ -220,10 +218,11 @@ const StoryEditor = (): JSX.Element => {
         setActiveStory(story);
         setActiveTab(id);
       } else {
-        // Open new story
+        // Open new story with a default title
         const newStory: Story = {
           id,
-          title: name,
+          title: 'Untitled Story',  // Default title
+          fileName: name,  // Use the file name from the event
           recap: '',
           instructions: '',
           panels: [{
@@ -261,7 +260,7 @@ const StoryEditor = (): JSX.Element => {
       setOpenStories(prev => 
         prev.map(story => 
           story.id === id 
-            ? { ...story, title: name }
+            ? { ...story, fileName: name }  // Only update fileName, not title
             : story
         )
       );
@@ -293,35 +292,16 @@ const StoryEditor = (): JSX.Element => {
     }
   };
 
-  const handleTabEdit = (storyId: string) => {
-    const story = openStories.find(s => s.id === storyId);
-    setEditingValue(story?.title || '');
-    setEditingTab(storyId);
-  };
-
-  const handleTabEditComplete = (storyId: string) => {
-    if (editingValue.trim()) {
-      setOpenStories(stories => 
-        stories.map(story => 
-          story.id === storyId 
-            ? { ...story, title: editingValue }
-            : story
-        )
-      );
-      // Dispatch event to update file name
-      const event = new CustomEvent('tabRename', { 
-        detail: { id: storyId, name: editingValue } 
-      });
-      window.dispatchEvent(event);
-    }
-    setEditingTab(null);
-    setEditingValue('');
-  };
-
   const handleStoryContentChange = (field: keyof Story, value: any) => {
     if (!activeStory) return;
     
-    const updatedStory = { ...activeStory, [field]: value };
+    // Only update the specified field, preserving fileName
+    const updatedStory = { 
+      ...activeStory, 
+      [field]: value,
+      fileName: activeStory.fileName // Explicitly preserve fileName
+    };
+    
     setActiveStory(updatedStory);
     setOpenStories(stories => 
       stories.map(story => 
@@ -890,15 +870,28 @@ const StoryEditor = (): JSX.Element => {
     const newStory: Story = {
       id: Date.now().toString(),
       title: 'Untitled Story',
+      fileName: 'Untitled Story',  // Set initial fileName
       recap: '',
       instructions: '',
-      panels: [],
+      panels: [{
+        id: '1',
+        userInput: '',
+        aiOutput: '',
+        characters: [],
+        worldContext: '',
+        isEdited: false,
+        sectionInstructions: '',
+        isEditing: false,
+        lastSavedOutput: '',
+        task: '',
+      }],
       isEdited: false,
       selectedCharacters: [],
       selectedWorld: ''
     };
     setActiveStory(newStory);
     setOpenStories([...openStories, newStory]);
+    setActiveTab(newStory.id);
   };
 
   const handleStoryAliasChange = (storyId: string, newAlias: string) => {
@@ -911,15 +904,41 @@ const StoryEditor = (): JSX.Element => {
     );
   };
 
-  const handleFileNameChange = (newName: string) => {
-    if (activeStory) {
-      setOpenStories(prevStories =>
-        prevStories.map(story =>
-          story.id === activeStory.id
-            ? { ...story, alias: newName }
-            : story
-        )
-      );
+  // Handle title changes (completely separate from tab name)
+  const handleTitleChange = (newTitle: string) => {
+    if (!activeStory) return;
+    
+    // Only update the title in the story object, preserving fileName
+    const updatedStory = { 
+      ...activeStory, 
+      title: newTitle,
+      fileName: activeStory.fileName // Explicitly preserve fileName
+    };
+
+    // Update the active story and the story in openStories
+    setActiveStory(updatedStory);
+    setOpenStories(prevStories => 
+      prevStories.map(story => 
+        story.id === activeStory.id ? updatedStory : story
+      )
+    );
+
+    // No event dispatch for tab/file name update
+  };
+
+  const handleFileNameChange = (event: CustomEvent<{ id: string; name: string }>) => {
+    const { id, name } = event.detail;
+    setOpenStories(stories => 
+      stories.map(story => 
+        story.id === id 
+          ? { ...story, fileName: name }
+          : story
+      )
+    );
+
+    // Update active story if it's the one being renamed
+    if (activeStory?.id === id) {
+      setActiveStory(prev => prev ? { ...prev, fileName: name } : null);
     }
   };
 
@@ -953,20 +972,6 @@ const StoryEditor = (): JSX.Element => {
       selectedWorld: worldId
     };
 
-    setActiveStory(updatedStory);
-    setOpenStories(stories => 
-      stories.map(story => 
-        story.id === activeStory.id ? updatedStory : story
-      )
-    );
-  };
-
-  // Handle title changes (completely separate from tab name)
-  const handleTitleChange = (newTitle: string) => {
-    if (!activeStory) return;
-    
-    // Only update the story's title, not the tab name
-    const updatedStory = { ...activeStory, title: newTitle };
     setActiveStory(updatedStory);
     setOpenStories(stories => 
       stories.map(story => 
@@ -1033,40 +1038,21 @@ const StoryEditor = (): JSX.Element => {
               key={story.id}
               value={story.id}
               label={
-                editingTab === story.id ? (
-                  <TextField
-                    size="small"
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    onBlur={() => handleTabEditComplete(story.id)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        handleTabEditComplete(story.id);
-                      }
-                    }}
-                    autoFocus
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <Box
-                    sx={{ display: 'flex', alignItems: 'center' }}
-                    onDoubleClick={() => handleTabEdit(story.id)}
-                  >
-                    {story.title}
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTabClose(story.id);
-                        }}
-                        sx={{ ml: 1 }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Box>
-                )
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  {story.fileName}
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTabClose(story.id);
+                      }}
+                      sx={{ ml: 1 }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Box>
               }
             />
           ))}
@@ -1152,7 +1138,7 @@ const StoryEditor = (): JSX.Element => {
                 {/* Panel Content */}
                 <Box sx={{ pl: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-                    <Typography variant="subtitle1">Settings</Typography>
+                    <Typography variant="subtitle1">Story Settings</Typography>
                     <IconButton
                       onClick={() => setIsWorldPanelCollapsed(true)}
                       sx={{

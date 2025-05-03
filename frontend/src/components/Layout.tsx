@@ -42,6 +42,7 @@ interface StoryNode {
   name: string;
   type: 'folder' | 'story';
   children?: StoryNode[];
+  fileName?: string;
 }
 
 interface LayoutProps {
@@ -161,7 +162,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const handleAddStory = (parentId: string) => {
     const newStory: StoryNode = {
       id: Date.now().toString(),
-      name: 'Untitled Story',
+      name: 'Untitled',
+      fileName: 'Untitled',
       type: 'story'
     };
 
@@ -190,12 +192,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     setExpandedNodes(newExpanded);
     // Start editing the new story name
     setEditingNode(newStory.id);
-    setEditingName(newStory.name);
+    setEditingName(newStory.fileName || newStory.name);
     // Open the new story
     const event = new CustomEvent('storySelect', { 
       detail: { 
         id: newStory.id,
-        name: newStory.name 
+        name: newStory.fileName || newStory.name
       } 
     });
     window.dispatchEvent(event);
@@ -223,14 +225,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         };
         return updateNode(prevTree);
       });
-      // Dispatch event to update tab name
-      const event = new CustomEvent('storyRename', { 
-        detail: { id: nodeId, name: editingName } 
-      });
-      window.dispatchEvent(event);
+
+      // Dispatch event to update both file name and tab name for stories
+      const node = findNodeById(storyTree, nodeId);
+      if (node && node.type === 'story') {
+        const event = new CustomEvent('storyRename', { 
+          detail: { id: nodeId, name: editingName } 
+        });
+        window.dispatchEvent(event);
+      }
     }
     setEditingNode(null);
     setEditingName('');
+  };
+
+  // Helper function to find a node by ID
+  const findNodeById = (nodes: StoryNode[], id: string): StoryNode | null => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      if (node.children) {
+        const found = findNodeById(node.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
   };
 
   const handleContextMenu = (event: React.MouseEvent, node: StoryNode) => {
@@ -266,6 +284,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const isExpanded = expandedNodes.has(node.id);
     const Icon = node.type === 'folder' ? FolderIcon : DescriptionIcon;
     const isRoot = node.id === 'root';
+    const displayName = node.type === 'story' ? (node.fileName || node.name) : node.name;
 
     return (
       <React.Fragment key={node.id}>
@@ -300,11 +319,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   e.stopPropagation();
                   if (!isRoot) {
                     setEditingNode(node.id);
-                    setEditingName(node.name);
+                    setEditingName(node.type === 'story' ? (node.fileName || node.name) : node.name);
                   }
                 }}
               >
-                {node.name}
+                {displayName}
               </Typography>
             )}
           </Box>
