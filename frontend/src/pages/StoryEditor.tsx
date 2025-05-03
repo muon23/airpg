@@ -217,26 +217,16 @@ const StoryEditor = (): JSX.Element => {
         // Story is already open, switch to it
         setActiveStory(story);
         setActiveTab(id);
+        setStoryPanels(story.panels);
       } else {
-        // Open new story with a default title
+        // Open new story with no panels
         const newStory: Story = {
           id,
-          title: 'Untitled Story',  // Default title
-          fileName: name,  // Use the file name from the event
+          title: 'Untitled Story',
+          fileName: name,
           recap: '',
           instructions: '',
-          panels: [{
-            id: '1',
-            userInput: '',
-            aiOutput: '',
-            characters: [],
-            worldContext: '',
-            isEdited: false,
-            sectionInstructions: '',
-            isEditing: false,
-            lastSavedOutput: '',
-            task: '',
-          }],
+          panels: [],
           isEdited: false,
           selectedCharacters: [],
           selectedWorld: ''
@@ -244,6 +234,7 @@ const StoryEditor = (): JSX.Element => {
         setOpenStories(prev => [...prev, newStory]);
         setActiveStory(newStory);
         setActiveTab(id);
+        setStoryPanels([]); // Ensure storyPanels is empty
       }
     };
 
@@ -310,38 +301,18 @@ const StoryEditor = (): JSX.Element => {
     );
   };
 
-  // Initialize panels from localStorage or with one empty panel
+  // Initialize panels from localStorage or with empty array
   const [storyPanels, setStoryPanels] = useState<StoryPanel[]>(() => {
     if (!activeStory) return [];
-    return activeStory.panels.length > 0 ? activeStory.panels : [{
-      id: '1',
-      userInput: '',
-      aiOutput: '',
-      characters: [],
-      worldContext: '',
-      isEdited: false,
-      sectionInstructions: '',
-      isEditing: false,
-      lastSavedOutput: '',
-      task: '',
-    }];
+    return activeStory.panels || [];
   });
 
   // Update panels when active story changes
   useEffect(() => {
     if (activeStory) {
-      setStoryPanels(activeStory.panels.length > 0 ? activeStory.panels : [{
-        id: '1',
-        userInput: '',
-        aiOutput: '',
-        characters: [],
-        worldContext: '',
-        isEdited: false,
-        sectionInstructions: '',
-        isEditing: false,
-        lastSavedOutput: '',
-        task: '',
-      }]);
+      setStoryPanels(activeStory.panels || []);
+    } else {
+      setStoryPanels([]);
     }
   }, [activeStory]);
 
@@ -398,51 +369,64 @@ const StoryEditor = (): JSX.Element => {
   const [isLoading, setIsLoading] = useState(true);
 
   const [taskMenuAnchor, setTaskMenuAnchor] = useState<{
-    mouseX: number;
-    mouseY: number;
+    element: HTMLElement | null;
     panelIndex: number;
-  } | null>(null);
+  }>({ element: null, panelIndex: -1 });
 
-  const handleTaskMenuOpen = (event: React.MouseEvent, index: number) => {
+  const handleTaskMenuOpen = (event: React.MouseEvent<HTMLElement>, index: number) => {
     event.preventDefault();
+    event.stopPropagation();
     setTaskMenuAnchor({
-      mouseX: event.clientX,
-      mouseY: event.clientY,
+      element: event.currentTarget,
       panelIndex: index
     });
   };
 
   const handleTaskMenuClose = () => {
-    setTaskMenuAnchor(null);
+    setTaskMenuAnchor({ element: null, panelIndex: -1 });
   };
 
   const handleTaskSelect = (taskId: string) => {
-    if (taskMenuAnchor) {
-      const newPanel: StoryPanel = {
-        id: Date.now().toString(),
-        userInput: '',
-        aiOutput: '',
-        characters: storyPanels[taskMenuAnchor.panelIndex]?.characters || [],
-        worldContext: storyPanels[taskMenuAnchor.panelIndex]?.worldContext || '',
-        isEdited: false,
-        sectionInstructions: '',
-        isEditing: false,
-        lastSavedOutput: '',
-        task: taskId
-      };
+    if (!activeStory) return;
 
-      setStoryPanels(prevPanels => {
-        const newPanels = [...prevPanels];
-        newPanels.splice(taskMenuAnchor.panelIndex + 1, 0, newPanel);
-        return newPanels;
-      });
+    const newPanel: StoryPanel = {
+      id: Date.now().toString(),
+      userInput: '',
+      aiOutput: '',
+      characters: [],
+      worldContext: '',
+      isEdited: false,
+      sectionInstructions: '',
+      isEditing: false,
+      lastSavedOutput: '',
+      task: taskId
+    };
 
-      setPanelHeights(prev => ({
-        ...prev,
-        [`${newPanel.id}-input`]: 200,
-        [`${newPanel.id}-output`]: 200
-      }));
-    }
+    // Update both storyPanels and the story in openStories
+    const updatedPanels = taskMenuAnchor.panelIndex === -1 
+      ? [newPanel, ...storyPanels]
+      : [...storyPanels.slice(0, taskMenuAnchor.panelIndex + 1), newPanel, ...storyPanels.slice(taskMenuAnchor.panelIndex + 1)];
+    
+    setStoryPanels(updatedPanels);
+    
+    // Update the story in openStories
+    setOpenStories(stories => 
+      stories.map(story => 
+        story.id === activeStory.id 
+          ? { ...story, panels: updatedPanels }
+          : story
+      )
+    );
+
+    // Update active story
+    setActiveStory(prev => prev ? { ...prev, panels: updatedPanels } : null);
+
+    setPanelHeights(prev => ({
+      ...prev,
+      [`${newPanel.id}-input`]: 200,
+      [`${newPanel.id}-output`]: 200
+    }));
+
     handleTaskMenuClose();
   };
 
@@ -870,21 +854,10 @@ const StoryEditor = (): JSX.Element => {
     const newStory: Story = {
       id: Date.now().toString(),
       title: 'Untitled Story',
-      fileName: 'Untitled Story',  // Set initial fileName
+      fileName: 'Untitled Story',
       recap: '',
       instructions: '',
-      panels: [{
-        id: '1',
-        userInput: '',
-        aiOutput: '',
-        characters: [],
-        worldContext: '',
-        isEdited: false,
-        sectionInstructions: '',
-        isEditing: false,
-        lastSavedOutput: '',
-        task: '',
-      }],
+      panels: [],
       isEdited: false,
       selectedCharacters: [],
       selectedWorld: ''
@@ -1058,6 +1031,58 @@ const StoryEditor = (): JSX.Element => {
           ))}
         </Tabs>
       </AppBar>
+
+      {/* Task Selection Menu - Moved to root level */}
+      <Menu
+        open={taskMenuAnchor.element !== null}
+        onClose={handleTaskMenuClose}
+        anchorEl={taskMenuAnchor.element}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+        PaperProps={{
+          elevation: 3,
+          sx: {
+            marginTop: 1,
+            width: 200,
+            maxHeight: 300,
+            overflowY: 'auto'
+          }
+        }}
+      >
+        {tasks.map(task => (
+          <MenuItem
+            key={task.id}
+            onClick={() => handleTaskSelect(task.id)}
+            sx={{
+              py: 1.5,
+              px: 2,
+              '&:hover': {
+                backgroundColor: `${getTaskColor(task.id)}15`
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+              <Box
+                sx={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  backgroundColor: getTaskColor(task.id),
+                  border: '2px solid',
+                  borderColor: 'divider'
+                }}
+              />
+              <Typography>{task.name}</Typography>
+            </Box>
+          </MenuItem>
+        ))}
+      </Menu>
 
       {/* Story Content */}
       {activeStory ? (
@@ -1522,27 +1547,37 @@ const StoryEditor = (): JSX.Element => {
                         top: -20,
                         zIndex: 1 
                       }}>
-                        <span>
-                          <IconButton
-                            onContextMenu={(e) => {
-                              e.preventDefault();
+                        <IconButton
+                          onClick={(e) => {
+                            if (storyPanels.length === 0) {
                               handleTaskMenuOpen(e, -1);
-                            }}
-                            onClick={() => handleAddPanel(-1)}
-                            sx={{
-                              border: '1px solid',
-                              borderRadius: '50%',
-                              width: 40,
-                              height: 40,
-                              backgroundColor: 'background.paper',
-                              '&:hover': {
-                                backgroundColor: 'action.hover',
+                            } else {
+                              const firstPanelTask = storyPanels[0]?.task;
+                              if (firstPanelTask) {
+                                handleTaskSelect(firstPanelTask);
+                              } else {
+                                handleTaskMenuOpen(e, -1);
                               }
-                            }}
-                          >
-                            <AddIcon />
-                          </IconButton>
-                        </span>
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTaskMenuOpen(e, -1);
+                          }}
+                          sx={{
+                            border: '1px solid',
+                            borderRadius: '50%',
+                            width: 40,
+                            height: 40,
+                            backgroundColor: 'background.paper',
+                            '&:hover': {
+                              backgroundColor: 'action.hover',
+                            }
+                          }}
+                        >
+                          <AddIcon />
+                        </IconButton>
                       </Box>
 
                       {storyPanels.map((panel, index) => (
@@ -1925,53 +1960,6 @@ const StoryEditor = (): JSX.Element => {
                                     </span>
                                   </Tooltip>
                                 </Box>
-
-                                {/* Task Selection Menu */}
-                                <Menu
-                                  open={taskMenuAnchor !== null}
-                                  onClose={handleTaskMenuClose}
-                                  anchorReference="anchorPosition"
-                                  anchorPosition={
-                                    taskMenuAnchor !== null
-                                      ? { top: taskMenuAnchor.mouseY, left: taskMenuAnchor.mouseX }
-                                      : undefined
-                                  }
-                                  PaperProps={{
-                                    elevation: 3,
-                                    sx: {
-                                      marginTop: 1,
-                                      width: 200
-                                    }
-                                  }}
-                                >
-                                  {tasks.map(task => (
-                                    <MenuItem
-                                      key={task.id}
-                                      onClick={() => handleTaskSelect(task.id)}
-                                      sx={{
-                                        py: 1.5,
-                                        px: 2,
-                                        '&:hover': {
-                                          backgroundColor: `${getTaskColor(task.id)}15`
-                                        }
-                                      }}
-                                    >
-                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                                        <Box
-                                          sx={{
-                                            width: 16,
-                                            height: 16,
-                                            borderRadius: '50%',
-                                            backgroundColor: getTaskColor(task.id),
-                                            border: '2px solid',
-                                            borderColor: 'divider'
-                                          }}
-                                        />
-                                        <Typography>{task.name}</Typography>
-                                      </Box>
-                                    </MenuItem>
-                                  ))}
-                                </Menu>
                               </Paper>
                             )}
                           </Draggable>
