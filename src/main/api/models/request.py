@@ -21,8 +21,8 @@ class StoryPanel(BaseModel):
 class StoryRequest(BaseModel):
     engine: str
     task: str
-    world: World
-    characters: List[Character]
+    world: Optional[World] = None
+    characters: Optional[List[Character]] = []
     story_recap: str
     instructions: str
     current_panel_index: int

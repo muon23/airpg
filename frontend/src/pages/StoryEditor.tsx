@@ -248,20 +248,27 @@ const StoryEditor = (): JSX.Element => {
   useEffect(() => {
     const handleStoryRename = (event: CustomEvent) => {
       const { id, name } = event.detail;
+      
+      // Update both fileName and title in openStories
       setOpenStories(prev => 
         prev.map(story => 
           story.id === id 
-            ? { ...story, fileName: name }  // Only update fileName, not title
+            ? { ...story, fileName: name, title: name }
             : story
         )
       );
+
+      // Update active story if it's the one being renamed
+      if (activeStory?.id === id) {
+        setActiveStory(prev => prev ? { ...prev, fileName: name, title: name } : null);
+      }
     };
 
     window.addEventListener('storyRename', handleStoryRename as EventListener);
     return () => {
       window.removeEventListener('storyRename', handleStoryRename as EventListener);
     };
-  }, []);
+  }, [activeStory]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setActiveTab(newValue);
@@ -584,10 +591,13 @@ const StoryEditor = (): JSX.Element => {
       // Get the index of the current panel
       const currentPanelIndex = storyPanels.findIndex(p => p.id === panelId);
 
+      // Find the selected world if any
+      const selectedWorld = activeStory.selectedWorld ? worlds.find(w => w.id === activeStory.selectedWorld) : null;
+
       const requestData = {
         engine: selectedEngine,
-        task: selectedTask,
-        world: worlds.find(w => w.id === activeStory.selectedWorld),
+        task: panel.task,
+        world: selectedWorld,
         characters: characters.filter(c => 
           c.controlledBy === 'user' || c.controlledBy === 'ai'
         ).map(c => ({
@@ -596,16 +606,18 @@ const StoryEditor = (): JSX.Element => {
           persona: c.persona,
           controlled_by: c.controlledBy
         })),
-        story_recap: activeStory.recap,
-        instructions: activeStory.instructions,
+        story_recap: activeStory.recap || "",
+        instructions: activeStory.instructions || "",
         current_panel_index: currentPanelIndex,
         panels: storyPanels.map(p => ({
-          user_input: p.userInput,
-          ai_output: p.aiOutput,
-          is_edited: p.isEdited,
-          section_instructions: p.sectionInstructions
+          user_input: p.userInput || "",
+          ai_output: p.aiOutput || "",
+          is_edited: p.isEdited || false,
+          section_instructions: p.sectionInstructions || ""
         }))
       };
+
+      console.log('Submitting request data:', JSON.stringify(requestData, null, 2));
 
       const response = await fetch(`${config.apiUrl}/api/story/generate`, {
         method: 'POST',
@@ -616,7 +628,13 @@ const StoryEditor = (): JSX.Element => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate story');
+        const errorData = await response.json();
+        console.error('API Error Response:', errorData);
+        throw new Error(
+          errorData.detail && typeof errorData.detail === 'string' 
+            ? errorData.detail 
+            : JSON.stringify(errorData, null, 2)
+        );
       }
 
       const data = await response.json();
@@ -630,6 +648,11 @@ const StoryEditor = (): JSX.Element => {
       );
     } catch (error) {
       console.error('Error generating story:', error);
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert('An unknown error occurred');
+      }
     }
   };
 
@@ -1204,6 +1227,9 @@ const StoryEditor = (): JSX.Element => {
                       onChange={(e) => handleWorldSelection(e.target.value)}
                       label="World"
                     >
+                      <MenuItem value="">
+                        <em>None</em>
+                      </MenuItem>
                       {worlds.map(world => (
                         <MenuItem key={world.id} value={world.id}>{world.name}</MenuItem>
                       ))}
@@ -1404,6 +1430,9 @@ const StoryEditor = (): JSX.Element => {
                       fontSize: '2rem',
                       fontWeight: 'bold'
                     }
+                  }}
+                  inputProps={{
+                    onFocus: (e) => e.target.select()
                   }}
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>

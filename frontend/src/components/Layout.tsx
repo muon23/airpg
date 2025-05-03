@@ -49,6 +49,20 @@ interface LayoutProps {
   children?: React.ReactNode;
 }
 
+// Add sorting function
+const sortNodes = (nodes: StoryNode[]): StoryNode[] => {
+  // Separate files and folders
+  const files = nodes.filter(node => node.type === 'story');
+  const folders = nodes.filter(node => node.type === 'folder');
+
+  // Sort files and folders alphabetically by name
+  const sortedFiles = files.sort((a, b) => (a.fileName || a.name).localeCompare(b.fileName || b.name));
+  const sortedFolders = folders.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Return files first, then folders
+  return [...sortedFiles, ...sortedFolders];
+};
+
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['root']));
@@ -57,7 +71,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const [storyTree, setStoryTree] = useState<StoryNode[]>(() => {
     const savedTree = localStorage.getItem('storyTree');
-    return savedTree ? JSON.parse(savedTree) : [
+    const initialTree = savedTree ? JSON.parse(savedTree) : [
       {
         id: 'root',
         name: 'Stories',
@@ -65,6 +79,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         children: []
       }
     ];
+    
+    // Apply sorting to the loaded tree
+    const sortTreeRecursively = (nodes: StoryNode[]): StoryNode[] => {
+      return sortNodes(nodes.map(node => {
+        if (node.children) {
+          return {
+            ...node,
+            children: sortTreeRecursively(node.children)
+          };
+        }
+        return node;
+      }));
+    };
+    
+    return sortTreeRecursively(initialTree);
   });
 
   const [editingNode, setEditingNode] = useState<string | null>(null);
@@ -134,9 +163,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const updateNode = (nodes: StoryNode[]): StoryNode[] => {
       return nodes.map(node => {
         if (node.id === parentId) {
+          const updatedChildren = [...(node.children || []), newFolder];
           return {
             ...node,
-            children: [...(node.children || []), newFolder]
+            children: sortNodes(updatedChildren)
           };
         }
         if (node.children) {
@@ -170,9 +200,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const updateNode = (nodes: StoryNode[]): StoryNode[] => {
       return nodes.map(node => {
         if (node.id === parentId) {
+          const updatedChildren = [...(node.children || []), newStory];
           return {
             ...node,
-            children: [...(node.children || []), newStory]
+            children: sortNodes(updatedChildren)
           };
         }
         if (node.children) {
@@ -193,47 +224,81 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     // Start editing the new story name
     setEditingNode(newStory.id);
     setEditingName(newStory.fileName || newStory.name);
-    // Open the new story
-    const event = new CustomEvent('storySelect', { 
-      detail: { 
-        id: newStory.id,
-        name: newStory.fileName || newStory.name
-      } 
-    });
-    window.dispatchEvent(event);
+    
+    // Focus and select the text field after state updates
+    setTimeout(() => {
+      const input = document.querySelector(`input[data-node-id="${newStory.id}"]`);
+      if (input) {
+        (input as HTMLInputElement).focus();
+        (input as HTMLInputElement).select();
+      }
+    }, 0);
+
+    // Open the new story - delay this slightly to allow for potential immediate rename
+    setTimeout(() => {
+      const event = new CustomEvent('storySelect', { 
+        detail: { 
+          id: newStory.id,
+          name: newStory.fileName || newStory.name
+        } 
+      });
+      window.dispatchEvent(event);
+    }, 100);
   };
 
   const handleRename = (node: StoryNode) => {
     setEditingNode(node.id);
-    setEditingName(node.name);
+    setEditingName(node.type === 'story' ? (node.fileName || node.name) : node.name);
     handleCloseContextMenu();
+    
+    // Focus and select the text field after state updates
+    setTimeout(() => {
+      const input = document.querySelector(`input[data-node-id="${node.id}"]`);
+      if (input) {
+        (input as HTMLInputElement).focus();
+        (input as HTMLInputElement).select();
+      }
+    }, 0);
   };
 
   const handleRenameComplete = (nodeId: string) => {
     if (editingName.trim()) {
+      // First dispatch the rename event before updating the tree
+      const node = findNodeById(storyTree, nodeId);
+      if (node && node.type === 'story') {
+        const renameEvent = new CustomEvent('storyRename', { 
+          detail: { id: nodeId, name: editingName } 
+        });
+        window.dispatchEvent(renameEvent);
+      }
+
       setStoryTree(prevTree => {
         const updateNode = (nodes: StoryNode[]): StoryNode[] => {
-          return nodes.map(node => {
+          return sortNodes(nodes.map(node => {
             if (node.id === nodeId) {
-              return { ...node, name: editingName };
+              if (node.type === 'story') {
+                return {
+                  ...node,
+                  name: editingName,
+                  fileName: editingName
+                };
+              }
+              return {
+                ...node,
+                name: editingName
+              };
             }
             if (node.children) {
-              return { ...node, children: updateNode(node.children) };
+              return {
+                ...node,
+                children: updateNode(node.children)
+              };
             }
             return node;
-          });
+          }));
         };
         return updateNode(prevTree);
       });
-
-      // Dispatch event to update both file name and tab name for stories
-      const node = findNodeById(storyTree, nodeId);
-      if (node && node.type === 'story') {
-        const event = new CustomEvent('storyRename', { 
-          detail: { id: nodeId, name: editingName } 
-        });
-        window.dispatchEvent(event);
-      }
     }
     setEditingNode(null);
     setEditingName('');
@@ -308,9 +373,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     handleRenameComplete(node.id);
                   }
                 }}
-                autoFocus
                 onClick={(e) => e.stopPropagation()}
                 sx={{ flex: 1 }}
+                inputProps={{
+                  'data-node-id': node.id,
+                  onFocus: (e) => e.target.select()
+                }}
               />
             ) : (
               <Typography 
