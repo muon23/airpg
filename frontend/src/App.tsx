@@ -12,7 +12,7 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
+      <Router future={{ v7_relativeSplatPath: true }}>
         <Layout>
           <Routes>
             <Route path="/" element={<StoryEditor />} />

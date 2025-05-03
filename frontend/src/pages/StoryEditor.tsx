@@ -28,6 +28,7 @@ import {
   DialogContent,
   DialogActions,
   ListItemIcon,
+  Menu,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -60,6 +61,7 @@ import { DragDropContext, Droppable, Draggable, DropResult, DroppableProvided, D
 import { ResizableBox, ResizeCallbackData } from 'react-resizable';
 import 'react-resizable/css/styles.css';
 import { config } from '../config';
+import { getTaskColor } from '../constants/colors';
 
 interface StoryNode {
   id: string;
@@ -91,6 +93,7 @@ interface StoryPanel {
   sectionInstructions: string;
   isEditing: boolean;
   lastSavedOutput: string;
+  task?: string;
 }
 
 interface Character {
@@ -118,6 +121,7 @@ interface Task {
   id: string;
   name: string;
   description: string;
+  borderColor: string;
 }
 
 type TabType = 'story' | 'characters' | 'worlds';
@@ -232,6 +236,7 @@ const StoryEditor = (): JSX.Element => {
             sectionInstructions: '',
             isEditing: false,
             lastSavedOutput: '',
+            task: '',
           }],
           isEdited: false,
           selectedCharacters: [],
@@ -338,6 +343,7 @@ const StoryEditor = (): JSX.Element => {
       sectionInstructions: '',
       isEditing: false,
       lastSavedOutput: '',
+      task: '',
     }];
   });
 
@@ -354,6 +360,7 @@ const StoryEditor = (): JSX.Element => {
         sectionInstructions: '',
         isEditing: false,
         lastSavedOutput: '',
+        task: '',
       }]);
     }
   }, [activeStory]);
@@ -401,32 +408,102 @@ const StoryEditor = (): JSX.Element => {
   const [resizingPanel, setResizingPanel] = useState<string | null>(null);
   const [resizeStartY, setResizeStartY] = useState<number>(0);
   const [resizeStartHeight, setResizeStartHeight] = useState<number>(0);
-  const [selectedEngine, setSelectedEngine] = useState<string>(() => {
-    const savedEngine = localStorage.getItem('selectedEngine');
-    return savedEngine || '';
-  });
+  const [selectedEngine, setSelectedEngine] = useState<string>('');
   const [selectedTask, setSelectedTask] = useState<string>(() => {
     const savedTask = localStorage.getItem('selectedTask');
     return savedTask || '';
   });
   const [engines, setEngines] = useState<Engine[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [taskMenuAnchor, setTaskMenuAnchor] = useState<{
+    mouseX: number;
+    mouseY: number;
+    panelIndex: number;
+  } | null>(null);
+
+  const handleTaskMenuOpen = (event: React.MouseEvent, index: number) => {
+    event.preventDefault();
+    setTaskMenuAnchor({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      panelIndex: index
+    });
+  };
+
+  const handleTaskMenuClose = () => {
+    setTaskMenuAnchor(null);
+  };
+
+  const handleTaskSelect = (taskId: string) => {
+    if (taskMenuAnchor) {
+      const newPanel: StoryPanel = {
+        id: Date.now().toString(),
+        userInput: '',
+        aiOutput: '',
+        characters: storyPanels[taskMenuAnchor.panelIndex]?.characters || [],
+        worldContext: storyPanels[taskMenuAnchor.panelIndex]?.worldContext || '',
+        isEdited: false,
+        sectionInstructions: '',
+        isEditing: false,
+        lastSavedOutput: '',
+        task: taskId
+      };
+
+      setStoryPanels(prevPanels => {
+        const newPanels = [...prevPanels];
+        newPanels.splice(taskMenuAnchor.panelIndex + 1, 0, newPanel);
+        return newPanels;
+      });
+
+      setPanelHeights(prev => ({
+        ...prev,
+        [`${newPanel.id}-input`]: 200,
+        [`${newPanel.id}-output`]: 200
+      }));
+    }
+    handleTaskMenuClose();
+  };
 
   const fetchConfigurations = async () => {
     try {
-      const [enginesResponse, tasksResponse] = await Promise.all([
-        fetch(`${config.apiUrl}/api/engines`),
-        fetch(`${config.apiUrl}/api/tasks`)
+      setIsLoading(true);
+      const [tasksResponse, enginesResponse] = await Promise.all([
+        fetch(`${config.apiUrl}/api/tasks`),
+        fetch(`${config.apiUrl}/api/engines`)
       ]);
-      const enginesData = await enginesResponse.json();
-      const tasksData = await tasksResponse.json();
-      setEngines(enginesData);
+
+      if (!tasksResponse.ok || !enginesResponse.ok) {
+        throw new Error('Failed to fetch configurations');
+      }
+
+      const [tasksData, enginesData] = await Promise.all([
+        tasksResponse.json(),
+        enginesResponse.json()
+      ]);
+
+      console.log('Fetched tasks:', tasksData); // For debugging
+      console.log('Fetched engines:', enginesData); // For debugging
+      
       setTasks(tasksData);
+      setEngines(enginesData);
+      
+      // Set the first engine as default if none is selected
+      if (!selectedEngine && enginesData.length > 0) {
+        setSelectedEngine(enginesData[0].id);
+      }
     } catch (error) {
       console.error('Failed to fetch configurations:', error);
+      // Set default empty state
+      setTasks([]);
+      setEngines([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Ensure we fetch configurations on component mount
   useEffect(() => {
     fetchConfigurations();
   }, []);
@@ -436,17 +513,21 @@ const StoryEditor = (): JSX.Element => {
       id: Date.now().toString(),
       userInput: '',
       aiOutput: '',
-      characters: [],
-      worldContext: '',
+      characters: index >= 0 ? storyPanels[index].characters : [],
+      worldContext: index >= 0 ? storyPanels[index].worldContext : '',
       isEdited: false,
       sectionInstructions: '',
       isEditing: false,
       lastSavedOutput: '',
+      task: index >= 0 ? storyPanels[index].task : 
+            storyPanels.length > 0 ? storyPanels[0].task : 
+            tasks.length > 0 ? tasks[0].id : undefined
     };
 
     setStoryPanels(prevPanels => {
       const newPanels = [...prevPanels];
-      newPanels.splice(index + 1, 0, newPanel);
+      const insertIndex = index === -1 ? 0 : index + 1;
+      newPanels.splice(insertIndex, 0, newPanel);
       return newPanels;
     });
 
@@ -972,16 +1053,18 @@ const StoryEditor = (): JSX.Element => {
                     onDoubleClick={() => handleTabEdit(story.id)}
                   >
                     {story.title}
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTabClose(story.id);
-                      }}
-                      sx={{ ml: 1 }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTabClose(story.id);
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
                   </Box>
                 )
               }
@@ -1092,25 +1175,13 @@ const StoryEditor = (): JSX.Element => {
                   <FormControl fullWidth sx={{ mb: 2 }}>
                     <InputLabel>Engine</InputLabel>
                     <Select
-                      value={selectedEngine || ''}
+                      value={selectedEngine}
                       onChange={(e) => setSelectedEngine(e.target.value)}
                       label="Engine"
+                      disabled={isLoading}
                     >
                       {engines.map(engine => (
                         <MenuItem key={engine.id} value={engine.id}>{engine.name}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel>Task</InputLabel>
-                    <Select
-                      value={selectedTask || ''}
-                      onChange={(e) => setSelectedTask(e.target.value)}
-                      label="Task"
-                    >
-                      {tasks.map(task => (
-                        <MenuItem key={task.id} value={task.id}>{task.name}</MenuItem>
                       ))}
                     </Select>
                   </FormControl>
@@ -1326,24 +1397,32 @@ const StoryEditor = (): JSX.Element => {
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Tooltip title="Load story">
-                    <IconButton onClick={handleLoadStory}>
-                      <FolderOpenIcon />
-                    </IconButton>
+                    <span>
+                      <IconButton onClick={handleLoadStory}>
+                        <FolderOpenIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                   <Tooltip title="Undo">
-                    <IconButton>
-                      <UndoIcon />
-                    </IconButton>
+                    <span>
+                      <IconButton>
+                        <UndoIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                   <Tooltip title="Redo">
-                    <IconButton>
-                      <RedoIcon />
-                    </IconButton>
+                    <span>
+                      <IconButton>
+                        <RedoIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                   <Tooltip title="Save story">
-                    <IconButton>
-                      <SaveIcon />
-                    </IconButton>
+                    <span>
+                      <IconButton>
+                        <SaveIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                 </Box>
               </Box>
@@ -1425,22 +1504,26 @@ const StoryEditor = (): JSX.Element => {
                       }}>
                         {deletedPanels.length > 0 && (
                           <Tooltip title="Undo Delete">
-                            <IconButton
-                              size="small"
-                              onClick={handleUndoDelete}
-                            >
-                              <UndoIcon />
-                            </IconButton>
+                            <span>
+                              <IconButton
+                                size="small"
+                                onClick={handleUndoDelete}
+                              >
+                                <UndoIcon />
+                              </IconButton>
+                            </span>
                           </Tooltip>
                         )}
                         {lastEditedPanels.length > 0 && (
                           <Tooltip title="Undo Edit">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleUndoEdit(lastEditedPanels[0].id)}
-                            >
-                              <RestoreIcon />
-                            </IconButton>
+                            <span>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleUndoEdit(lastEditedPanels[0].id)}
+                              >
+                                <RestoreIcon />
+                              </IconButton>
+                            </span>
                           </Tooltip>
                         )}
                       </Box>
@@ -1453,18 +1536,27 @@ const StoryEditor = (): JSX.Element => {
                         top: -20,
                         zIndex: 1 
                       }}>
-                        <IconButton
-                          onClick={() => handleAddPanel(-1)}
-                          sx={{
-                            border: '1px solid',
-                            borderRadius: '50%',
-                            width: 40,
-                            height: 40,
-                            backgroundColor: 'background.paper',
-                          }}
-                        >
-                          <AddIcon />
-                        </IconButton>
+                        <span>
+                          <IconButton
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              handleTaskMenuOpen(e, -1);
+                            }}
+                            onClick={() => handleAddPanel(-1)}
+                            sx={{
+                              border: '1px solid',
+                              borderRadius: '50%',
+                              width: 40,
+                              height: 40,
+                              backgroundColor: 'background.paper',
+                              '&:hover': {
+                                backgroundColor: 'action.hover',
+                              }
+                            }}
+                          >
+                            <AddIcon />
+                          </IconButton>
+                        </span>
                       </Box>
 
                       {storyPanels.map((panel, index) => (
@@ -1474,7 +1566,20 @@ const StoryEditor = (): JSX.Element => {
                               <Paper
                                 ref={provided.innerRef}
                                 {...provided.draggableProps}
-                                sx={{ p: 2, display: 'flex', gap: 2, position: 'relative' }}
+                                sx={{ 
+                                  p: 2, 
+                                  display: 'flex', 
+                                  gap: 2, 
+                                  position: 'relative',
+                                  border: '2px solid',
+                                  borderColor: getTaskColor(panel.task),
+                                  borderLeft: '6px solid',
+                                  borderLeftColor: getTaskColor(panel.task),
+                                  '&:hover': {
+                                    borderColor: getTaskColor(panel.task),
+                                    boxShadow: 2
+                                  }
+                                }}
                               >
                                 {/* Drag handle - only for reordering */}
                                 <Box 
@@ -1500,8 +1605,8 @@ const StoryEditor = (): JSX.Element => {
                                       maxHeight: 500,
                                       position: 'relative',
                                       marginBottom: 0,
-                                      border: '1px solid',
-                                      borderColor: 'divider',
+                                      border: '2px solid',
+                                      borderColor: getTaskColor(panel.task),
                                       borderRadius: 1,
                                       overflow: 'hidden'
                                     }}
@@ -1537,21 +1642,23 @@ const StoryEditor = (): JSX.Element => {
                                       }
                                     }}>
                                       <Tooltip title="Submit">
-                                        <IconButton
-                                          size="small"
-                                          onClick={() => handleSubmit(panel.id)}
-                                          sx={{ 
-                                            padding: '4px',
-                                            '& .MuiSvgIcon-root': {
-                                              fontSize: '1.2rem'
-                                            },
-                                            '&:hover': {
-                                              color: 'primary.main'
-                                            }
-                                          }}
-                                        >
-                                          <SendIcon />
-                                        </IconButton>
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleSubmit(panel.id)}
+                                            sx={{ 
+                                              padding: '4px',
+                                              '& .MuiSvgIcon-root': {
+                                                fontSize: '1.2rem'
+                                              },
+                                              '&:hover': {
+                                                color: 'primary.main'
+                                              }
+                                            }}
+                                          >
+                                            <SendIcon />
+                                          </IconButton>
+                                        </span>
                                       </Tooltip>
                                     </Box>
                                   </Box>
@@ -1611,77 +1718,87 @@ const StoryEditor = (): JSX.Element => {
                                       {panel.isEditing ? (
                                         <>
                                           <Tooltip title="Save">
-                                            <IconButton
-                                              size="small"
-                                              onClick={() => handleSubmitEdit(panel.id)}
-                                              sx={{ 
-                                                padding: '4px',
-                                                '& .MuiSvgIcon-root': {
-                                                  fontSize: '1.2rem'
-                                                }
-                                              }}
-                                            >
-                                              <SaveIcon />
-                                            </IconButton>
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleSubmitEdit(panel.id)}
+                                                sx={{ 
+                                                  padding: '4px',
+                                                  '& .MuiSvgIcon-root': {
+                                                    fontSize: '1.2rem'
+                                                  }
+                                                }}
+                                              >
+                                                <SaveIcon />
+                                              </IconButton>
+                                            </span>
                                           </Tooltip>
                                           <Tooltip title="Cancel">
-                                            <IconButton
-                                              size="small"
-                                              onClick={() => handleUndoEdit(panel.id)}
-                                              sx={{ 
-                                                padding: '4px',
-                                                '& .MuiSvgIcon-root': {
-                                                  fontSize: '1.2rem'
-                                                }
-                                              }}
-                                            >
-                                              <UndoIcon />
-                                            </IconButton>
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleUndoEdit(panel.id)}
+                                                sx={{ 
+                                                  padding: '4px',
+                                                  '& .MuiSvgIcon-root': {
+                                                    fontSize: '1.2rem'
+                                                  }
+                                                }}
+                                              >
+                                                <UndoIcon />
+                                              </IconButton>
+                                            </span>
                                           </Tooltip>
                                         </>
                                       ) : (
                                         <>
                                           <Tooltip title="Edit">
-                                            <IconButton
-                                              size="small"
-                                              onClick={() => handleEditToggle(panel.id)}
-                                              sx={{ 
-                                                padding: '4px',
-                                                '& .MuiSvgIcon-root': {
-                                                  fontSize: '1.2rem'
-                                                }
-                                              }}
-                                            >
-                                              <EditIcon />
-                                            </IconButton>
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleEditToggle(panel.id)}
+                                                sx={{ 
+                                                  padding: '4px',
+                                                  '& .MuiSvgIcon-root': {
+                                                    fontSize: '1.2rem'
+                                                  }
+                                                }}
+                                              >
+                                                <EditIcon />
+                                              </IconButton>
+                                            </span>
                                           </Tooltip>
                                           <Tooltip title="Regenerate">
-                                            <IconButton
-                                              size="small"
-                                              onClick={() => handleRegenerate(panel.id)}
-                                              sx={{ 
-                                                padding: '4px',
-                                                '& .MuiSvgIcon-root': {
-                                                  fontSize: '1.2rem'
-                                                }
-                                              }}
-                                            >
-                                              <RefreshIcon />
-                                            </IconButton>
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleRegenerate(panel.id)}
+                                                sx={{ 
+                                                  padding: '4px',
+                                                  '& .MuiSvgIcon-root': {
+                                                    fontSize: '1.2rem'
+                                                  }
+                                                }}
+                                              >
+                                                <RefreshIcon />
+                                              </IconButton>
+                                            </span>
                                           </Tooltip>
                                           <Tooltip title="Regenerate All Below">
-                                            <IconButton
-                                              size="small"
-                                              onClick={() => handleRegenerateBelow(panel.id)}
-                                              sx={{ 
-                                                padding: '4px',
-                                                '& .MuiSvgIcon-root': {
-                                                  fontSize: '1.2rem'
-                                                }
-                                              }}
-                                            >
-                                              <AutoAwesomeIcon />
-                                            </IconButton>
+                                            <span>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleRegenerateBelow(panel.id)}
+                                                sx={{ 
+                                                  padding: '4px',
+                                                  '& .MuiSvgIcon-root': {
+                                                    fontSize: '1.2rem'
+                                                  }
+                                                }}
+                                              >
+                                                <AutoAwesomeIcon />
+                                              </IconButton>
+                                            </span>
                                           </Tooltip>
                                         </>
                                       )}
@@ -1723,39 +1840,43 @@ const StoryEditor = (): JSX.Element => {
                                   marginLeft: 24
                                 }}>
                                   <Tooltip title="Section Instructions">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleSectionInstructionsToggle(panel.id)}
-                                      sx={{ 
-                                        color: sectionInstructionsOpen[panel.id] ? 'primary.main' : 'inherit',
-                                        transform: sectionInstructionsOpen[panel.id] ? 'rotate(180deg)' : 'none',
-                                        transition: 'transform 0.2s',
-                                        padding: '4px',
-                                        '& .MuiSvgIcon-root': {
-                                          fontSize: '1.2rem'
-                                        },
-                                        '&:hover': {
-                                          color: 'primary.main'
-                                        }
-                                      }}
-                                    >
-                                      <SettingsIcon />
-                                    </IconButton>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleSectionInstructionsToggle(panel.id)}
+                                        sx={{ 
+                                          color: sectionInstructionsOpen[panel.id] ? 'primary.main' : 'inherit',
+                                          transform: sectionInstructionsOpen[panel.id] ? 'rotate(180deg)' : 'none',
+                                          transition: 'transform 0.2s',
+                                          padding: '4px',
+                                          '& .MuiSvgIcon-root': {
+                                            fontSize: '1.2rem'
+                                          },
+                                          '&:hover': {
+                                            color: 'primary.main'
+                                          }
+                                        }}
+                                      >
+                                        <SettingsIcon />
+                                      </IconButton>
+                                    </span>
                                   </Tooltip>
                                   <Tooltip title="Delete Panel">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => handleDeletePanel(panel.id)}
-                                      sx={{ 
-                                        color: 'error.main',
-                                        padding: '4px',
-                                        '& .MuiSvgIcon-root': {
-                                          fontSize: '1.2rem'
-                                        }
-                                      }}
-                                    >
-                                      <DeleteIcon />
-                                    </IconButton>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleDeletePanel(panel.id)}
+                                        sx={{ 
+                                          color: 'error.main',
+                                          padding: '4px',
+                                          '& .MuiSvgIcon-root': {
+                                            fontSize: '1.2rem'
+                                          }
+                                        }}
+                                      >
+                                        <DeleteIcon />
+                                      </IconButton>
+                                    </span>
                                   </Tooltip>
                                 </Box>
 
@@ -1798,23 +1919,73 @@ const StoryEditor = (): JSX.Element => {
                                   zIndex: 1 
                                 }}>
                                   <Tooltip title="Add new panel">
-                                    <IconButton
-                                      onClick={() => handleAddPanel(index)}
+                                    <span>
+                                      <IconButton
+                                        onContextMenu={(e) => handleTaskMenuOpen(e, index)}
+                                        onClick={() => handleAddPanel(index)}
+                                        sx={{
+                                          border: '1px solid',
+                                          borderRadius: '50%',
+                                          width: 40,
+                                          height: 40,
+                                          backgroundColor: 'background.paper',
+                                          '&:hover': {
+                                            backgroundColor: 'action.hover',
+                                          }
+                                        }}
+                                      >
+                                        <AddIcon />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                </Box>
+
+                                {/* Task Selection Menu */}
+                                <Menu
+                                  open={taskMenuAnchor !== null}
+                                  onClose={handleTaskMenuClose}
+                                  anchorReference="anchorPosition"
+                                  anchorPosition={
+                                    taskMenuAnchor !== null
+                                      ? { top: taskMenuAnchor.mouseY, left: taskMenuAnchor.mouseX }
+                                      : undefined
+                                  }
+                                  PaperProps={{
+                                    elevation: 3,
+                                    sx: {
+                                      marginTop: 1,
+                                      width: 200
+                                    }
+                                  }}
+                                >
+                                  {tasks.map(task => (
+                                    <MenuItem
+                                      key={task.id}
+                                      onClick={() => handleTaskSelect(task.id)}
                                       sx={{
-                                        border: '1px solid',
-                                        borderRadius: '50%',
-                                        width: 40,
-                                        height: 40,
-                                        backgroundColor: 'background.paper',
+                                        py: 1.5,
+                                        px: 2,
                                         '&:hover': {
-                                          backgroundColor: 'action.hover',
+                                          backgroundColor: `${getTaskColor(task.id)}15`
                                         }
                                       }}
                                     >
-                                      <AddIcon />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Box>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                                        <Box
+                                          sx={{
+                                            width: 16,
+                                            height: 16,
+                                            borderRadius: '50%',
+                                            backgroundColor: getTaskColor(task.id),
+                                            border: '2px solid',
+                                            borderColor: 'divider'
+                                          }}
+                                        />
+                                        <Typography>{task.name}</Typography>
+                                      </Box>
+                                    </MenuItem>
+                                  ))}
+                                </Menu>
                               </Paper>
                             )}
                           </Draggable>
@@ -1833,9 +2004,7 @@ const StoryEditor = (): JSX.Element => {
 
       {/* Add Settings button to the toolbar */}
       <AppBar position="static" color="default" elevation={0}>
-        <Toolbar>
-          {/* ... existing toolbar content ... */}
-        </Toolbar>
+        {/* ... existing toolbar content ... */}
       </AppBar>
     </Box>
   );

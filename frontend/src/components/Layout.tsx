@@ -33,7 +33,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const drawerWidth = 240;
 
@@ -52,6 +52,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['root']));
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [storyTree, setStoryTree] = useState<StoryNode[]>(() => {
     const savedTree = localStorage.getItem('storyTree');
@@ -74,19 +75,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     node: StoryNode;
   } | null>(null);
 
+  const getTitle = () => {
+    switch (location.pathname) {
+      case '/characters':
+        return 'Character Manager';
+      case '/world':
+        return 'World Builder';
+      default:
+        return 'Storytelling Editor';
+    }
+  };
+
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
   const handleNodeClick = (node: StoryNode) => {
-    if (node.id === 'root') {
-      // Root folder (Stories) should always be expanded
-      const newExpanded = new Set(expandedNodes);
-      newExpanded.add('root');
-      setExpandedNodes(newExpanded);
-      return;
-    }
-
     if (node.type === 'folder') {
       const newExpanded = new Set(expandedNodes);
       if (newExpanded.has(node.id)) {
@@ -95,7 +99,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         newExpanded.add(node.id);
       }
       setExpandedNodes(newExpanded);
-    } else {
+      
+      // Only navigate to root and close mobile drawer for non-root folders
+      if (node.id === 'root') {
+        return;
+      }
+    }
+
+    if (node.type === 'story') {
       // Dispatch storySelect event for the StoryEditor to handle
       const event = new CustomEvent('storySelect', { 
         detail: { 
@@ -106,8 +117,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       window.dispatchEvent(event);
       // Navigate to the root path to ensure StoryEditor is mounted
       navigate('/');
-      setMobileOpen(false);
     }
+    
+    setMobileOpen(false);
   };
 
   const handleAddFolder = (parentId: string) => {
@@ -253,19 +265,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const renderStoryNode = (node: StoryNode, level: number = 0) => {
     const isExpanded = expandedNodes.has(node.id);
     const Icon = node.type === 'folder' ? FolderIcon : DescriptionIcon;
+    const isRoot = node.id === 'root';
 
     return (
       <React.Fragment key={node.id}>
         <ListItemButton
           onClick={() => handleNodeClick(node)}
-          onContextMenu={(e) => handleContextMenu(e, node)}
+          onContextMenu={(e) => isRoot ? e.preventDefault() : handleContextMenu(e, node)}
           sx={{ pl: level * 2 }}
         >
           <ListItemIcon>
             <Icon />
           </ListItemIcon>
           <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            {editingNode === node.id ? (
+            {editingNode === node.id && !isRoot ? (
               <TextField
                 size="small"
                 value={editingName}
@@ -285,8 +298,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 sx={{ flex: 1 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
-                  setEditingNode(node.id);
-                  setEditingName(node.name);
+                  if (!isRoot) {
+                    setEditingNode(node.id);
+                    setEditingName(node.name);
+                  }
                 }}
               >
                 {node.name}
@@ -294,12 +309,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </Box>
           {node.type === 'folder' && (
-            <ListItemSecondaryAction>
+            <Box sx={{ ml: 1 }}>
               {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            </ListItemSecondaryAction>
+            </Box>
           )}
         </ListItemButton>
-        {node.children && (
+        {node.type === 'folder' && node.children && (
           <Collapse in={isExpanded} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               {node.children.map(child => renderStoryNode(child, level + 1))}
@@ -315,7 +330,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Toolbar />
       <List>
         {storyTree.map(node => renderStoryNode(node))}
-        <ListItem button onClick={() => {
+        <ListItemButton onClick={() => {
           // Save current state before navigating
           const event = new CustomEvent('saveState');
           window.dispatchEvent(event);
@@ -324,8 +339,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }} sx={{ pl: 0 }}>
           <ListItemIcon><PersonIcon /></ListItemIcon>
           <ListItemText primary="Character Manager" />
-        </ListItem>
-        <ListItem button onClick={() => {
+        </ListItemButton>
+        <ListItemButton onClick={() => {
           // Save current state before navigating
           const event = new CustomEvent('saveState');
           window.dispatchEvent(event);
@@ -334,7 +349,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }} sx={{ pl: 0 }}>
           <ListItemIcon><PublicIcon /></ListItemIcon>
           <ListItemText primary="World Builder" />
-        </ListItem>
+        </ListItemButton>
       </List>
       <Menu
         open={contextMenu !== null}
@@ -493,7 +508,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div">
-            Storytelling Editor
+            {getTitle()}
           </Typography>
         </Toolbar>
       </AppBar>
