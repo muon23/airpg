@@ -718,7 +718,9 @@ const StoryEditor = (): JSX.Element => {
 
   const renderCharacterList = (controlType: 'user' | 'ai' | 'unassigned') => {
     console.log('Rendering characters:', characters);
-    const filteredCharacters = characters.filter((char: Character) => char.controlledBy === controlType);
+    const filteredCharacters = characters
+      .filter((char: Character) => char.controlledBy === controlType)
+      .sort((a, b) => a.name.localeCompare(b.name));  // Sort alphabetically by name
     return (
       <Droppable droppableId={controlType}>
         {(provided: DroppableProvided) => (
